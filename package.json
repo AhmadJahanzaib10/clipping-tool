@@ -10,13 +10,14 @@
     "build": "pnpm --filter @clip/web build",
     "start": "tsx scripts/run-web.ts start",
     "worker": "pnpm --filter @clip/worker start",
-    "test": "vitest run",
+    "test": "vitest run && pnpm run test:py",
     "lint": "pnpm -r typecheck && tsc -p tsconfig.scripts.json",
     "doctor": "tsx scripts/doctor.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/db-migrate.ts",
     "db:seed": "tsx scripts/db-seed.ts",
-    "sfx:scan": "tsx scripts/sfx-scan.ts"
+    "sfx:scan": "tsx scripts/sfx-scan.ts",
+    "test:py": "python -m pytest -q py"
   },
   "devDependencies": {
     "@clip/shared": "workspace:*",

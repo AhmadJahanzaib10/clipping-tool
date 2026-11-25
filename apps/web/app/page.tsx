@@ -1,6 +1,7 @@
 import fs from "node:fs";
+import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
-import { loadEnv, taskCounts } from "@clip/shared";
+import { getUsage, loadEnv, taskCounts } from "@clip/shared";
 import { schema } from "@clip/shared/db";
 import { getDb } from "@/lib/db";
 
@@ -37,7 +38,7 @@ function Stat({ label, value }: { label: string; value: React.ReactNode }) {
 export default function OverviewPage() {
   const env = loadEnv();
   const db = getDb();
-  const { operators, campaigns, sources, tasks, usage } = schema;
+  const { operators, campaigns, sources, tasks } = schema;
 
   const counts = taskCounts(db);
   const ops = db.select().from(operators).where(eq(operators.active, true)).all();
@@ -45,15 +46,18 @@ export default function OverviewPage() {
   const recentSources = db.select().from(sources).orderBy(desc(sources.createdAt)).limit(10).all();
   const running = db.select().from(tasks).where(eq(tasks.status, "running")).all();
   const failed = db.select().from(tasks).where(eq(tasks.status, "failed")).orderBy(desc(tasks.updatedAt)).limit(10).all();
-  const today = new Date().toISOString().slice(0, 10);
-  const usageToday = db.select().from(usage).where(eq(usage.date, today)).get();
-  const deepgramMin = (usageToday?.deepgramSeconds ?? 0) / 60;
+  const deepgramMin = getUsage(db).deepgramSeconds / 60;
   const freeGb = freeDiskGb(env.STORAGE_DIR);
   const workers = [...new Set(running.map((t) => t.workerId).filter(Boolean))];
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold">Overview</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-semibold">Overview</h1>
+        <Link href="/jobs/new" className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white dark:bg-zinc-100 dark:text-zinc-900">
+          New job
+        </Link>
+      </div>
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <Card title="Tasks">
@@ -75,7 +79,11 @@ export default function OverviewPage() {
           </ul>
         </Card>
         <Card title="Deepgram today">
-          <Stat label={`minutes of ${env.DEEPGRAM_DAILY_CAP_MIN} cap`} value={deepgramMin.toFixed(1)} />
+          <Stat label={`minutes of ${env.DEEPGRAM_DAILY_CAP_MIN} cap (UTC day)`} value={deepgramMin.toFixed(1)} />
+          <div className="mt-2 h-1.5 rounded bg-zinc-100 dark:bg-zinc-800">
+            <div className="h-1.5 rounded bg-blue-600" style={{ width: `${Math.min(100, (deepgramMin / env.DEEPGRAM_DAILY_CAP_MIN) * 100)}%` }} />
+          </div>
+          {!env.DEEPGRAM_API_KEY && <p className="mt-2 text-xs text-zinc-500">No API key: transcription uses captions or Whisper.</p>}
         </Card>
         <Card title="Disk">
           <Stat label="GB free on storage drive" value={freeGb === null ? "?" : freeGb.toFixed(0)} />
@@ -118,8 +126,15 @@ export default function OverviewPage() {
             <tbody>
               {recentSources.map((s) => (
                 <tr key={s.id} className="border-t border-zinc-100 dark:border-zinc-800">
-                  <td className="py-1">{s.title ?? s.url ?? s.id}</td>
-                  <td>{s.status}</td>
+                  <td className="py-1">
+                    <Link className="hover:underline" href={`/jobs/${s.id}`}>
+                      {s.title ?? s.url ?? s.id}
+                    </Link>
+                  </td>
+                  <td>
+                    {s.status}
+                    {s.transcriptProvider ? <span className="text-zinc-500"> · {s.transcriptProvider}</span> : null}
+                  </td>
                   <td className="text-zinc-500">{s.createdAt.slice(0, 16).replace("T", " ")}</td>
                 </tr>
               ))}

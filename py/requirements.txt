@@ -1,0 +1,8 @@
+# yt-dlp must stay current to keep working with YouTube: upgrade with `python -m pip install -U "yt-dlp[default]"`.
+# [default] includes yt-dlp-ejs (YouTube JS challenges, solved with Node via js_runtimes).
+yt-dlp[default]>=2026.11.23
+faster-whisper==1.2.1
+mediapipe==1.2.3
+scenedetect==0.7.3
+opencv-python-headless==5.1.0.95
+pytest==9.2.0

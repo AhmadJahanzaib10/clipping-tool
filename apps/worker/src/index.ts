@@ -1,22 +1,30 @@
 import os from "node:os";
-import { HEARTBEAT_MS, loadEnv, taskClass, type EnqueueTaskInput, type Task, type TaskClass, type TaskType } from "@clip/shared";
+import { HEARTBEAT_MS, loadEnv, taskClass, type Task, type TaskClass, type TaskType } from "@clip/shared";
 import { WorkerApi, WorkerApiError } from "./api";
+import { PermanentError, type StageHandler } from "./context";
+import { MediaService } from "./mediaService";
+import { ingest } from "./stages/ingest";
+import { transcribe } from "./stages/transcribe";
 
-/** A stage handler does the work and returns follow-up tasks to enqueue. */
-export type StageHandler = (task: Task, ctx: { signal: AbortSignal }) => Promise<EnqueueTaskInput[] | void>;
-
-/** Stage registry. Filled in from Milestone 2 onward (ingest, transcribe, …). */
-const stages: Partial<Record<TaskType, StageHandler>> = {};
+/** Stage registry: the worker only claims task types it has a handler for. */
+const stages: Partial<Record<TaskType, StageHandler>> = {
+  INGEST: ingest,
+  TRANSCRIBE: transcribe,
+};
 
 const MAX_TOTAL = 2; // SPEC §12: max 2 concurrent tasks, at most MAX_HEAVY_TASKS heavy
 const IDLE_POLL_MS = 3000;
 
 const env = loadEnv();
+const log = (...args: unknown[]) => console.log(new Date().toISOString(), "[worker]", ...args);
 const api = new WorkerApi(env.API_BASE_URL, env.WORKER_TOKEN, `${os.hostname()}-${process.pid}`);
+const media = new MediaService({
+  pythonPath: env.PYTHON_PATH,
+  lowPriority: env.LOW_PRIORITY,
+  onLog: (l) => console.log(new Date().toISOString(), "[media]", l),
+});
 const running = new Map<string, { task: Task; abort: AbortController }>();
 let stopping = false;
-
-const log = (...args: unknown[]) => console.log(new Date().toISOString(), "[worker]", ...args);
 
 function freeClasses(): TaskClass[] {
   if (running.size >= MAX_TOTAL) return [];
@@ -33,15 +41,18 @@ async function runTask(task: Task, handler: StageHandler) {
       abort.abort();
     });
   }, HEARTBEAT_MS);
+  const t0 = Date.now();
   try {
     log(`start ${task.type} ${task.id} (attempt ${task.attempts})`);
-    const next = (await handler(task, { signal: abort.signal })) ?? [];
+    const next = (await handler(task, { env, api, media, signal: abort.signal, log })) ?? [];
     await api.complete(task.id, next);
-    log(`done ${task.type} ${task.id}`);
+    log(`done ${task.type} ${task.id} in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
   } catch (e) {
-    const msg = e instanceof Error ? (e.stack ?? e.message) : String(e);
-    log(`failed ${task.type} ${task.id}: ${msg}`);
-    await api.fail(task.id, msg, { release: stopping }).catch((err) => log("could not report failure", err));
+    const msg = e instanceof Error ? e.message : String(e);
+    log(`failed ${task.type} ${task.id}: ${e instanceof Error ? (e.stack ?? msg) : msg}`);
+    await api
+      .fail(task.id, msg, { release: stopping, retryable: !(e instanceof PermanentError) })
+      .catch((err) => log("could not report failure", err instanceof Error ? err.message : err));
   } finally {
     clearInterval(hb);
     running.delete(task.id);
@@ -50,10 +61,6 @@ async function runTask(task: Task, handler: StageHandler) {
 
 async function main() {
   const types = Object.keys(stages) as TaskType[];
-  if (types.length === 0) {
-    log("No pipeline stages are implemented yet (Milestone 1). Nothing to do.");
-    return;
-  }
   log(`worker ${api.workerId} polling ${env.API_BASE_URL} for: ${types.join(", ")}`);
 
   process.on("SIGINT", () => {
@@ -63,14 +70,18 @@ async function main() {
     for (const r of running.values()) r.abort.abort();
   });
 
+  let apiDown = false;
   while (!stopping) {
     const classes = freeClasses();
     let claimed: Task | null = null;
     if (classes.length > 0) {
       try {
         claimed = await api.claim(classes, types);
+        if (apiDown) log("API reachable again");
+        apiDown = false;
       } catch (e) {
-        log("claim failed", e instanceof WorkerApiError ? e.message : e);
+        if (!apiDown) log("claim failed (is the web app running?):", e instanceof WorkerApiError ? e.message : e instanceof Error ? e.message : e);
+        apiDown = true;
       }
     }
     if (claimed) {
@@ -80,6 +91,7 @@ async function main() {
     await new Promise((r) => setTimeout(r, IDLE_POLL_MS));
   }
   while (running.size > 0) await new Promise((r) => setTimeout(r, 200));
+  media.stop();
 }
 
 main().catch((e) => {

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { CompleteBody, EnqueueTaskInput, Task, TaskClass, TaskType } from "@clip/shared";
+import type { CompleteBody, EnqueueTaskInput, EventLevel, Source, SourcePatch, Task, TaskClass, TaskType } from "@clip/shared";
 
 /** Thin client for /api/worker/*. Workers never touch SQLite directly (SPEC §2). */
 export class WorkerApi {
@@ -9,17 +9,21 @@ export class WorkerApi {
     readonly workerId: string,
   ) {}
 
-  private async post<T>(action: string, body: object, schema: z.ZodType<T>): Promise<T> {
-    const res = await fetch(new URL(`/api/worker/${action}`, this.baseUrl), {
-      method: "POST",
+  private async request<T>(method: "GET" | "POST" | "PATCH", route: string, body: object | undefined, schema: z.ZodType<T>): Promise<T> {
+    const res = await fetch(new URL(`/api/worker/${route}`, this.baseUrl), {
+      method,
       headers: { "content-type": "application/json", authorization: `Bearer ${this.token}` },
-      body: JSON.stringify({ workerId: this.workerId, ...body }),
+      body: body ? JSON.stringify(body) : undefined,
     });
     const json: unknown = await res.json().catch(() => ({}));
-    if (!res.ok) throw new WorkerApiError(res.status, action, json);
+    if (!res.ok) throw new WorkerApiError(res.status, route, json);
     return schema.parse(json);
   }
+  private post<T>(action: string, body: object, schema: z.ZodType<T>) {
+    return this.request("POST", action, { workerId: this.workerId, ...body }, schema);
+  }
 
+  // ----- queue -----
   claim(classes: TaskClass[], types: TaskType[]) {
     return this.post("claim", { classes, types }, z.object({ task: taskSchema.nullable() })).then((r) => r.task);
   }
@@ -33,19 +37,33 @@ export class WorkerApi {
   fail(taskId: string, error: string, opts: { retryable?: boolean; release?: boolean } = {}) {
     return this.post("fail", { taskId, error, ...opts }, z.object({ task: taskSchema }));
   }
+
+  // ----- data -----
+  getSource(id: string) {
+    return this.request("GET", `sources/${encodeURIComponent(id)}`, undefined, z.object({ source: sourceSchema })).then((r) => r.source);
+  }
+  patchSource(id: string, patch: SourcePatch) {
+    return this.request("PATCH", `sources/${encodeURIComponent(id)}`, patch, z.object({ source: sourceSchema })).then((r) => r.source);
+  }
+  event(e: { sourceId?: string | null; clipId?: string | null; level: EventLevel; message: string; data?: unknown }) {
+    return this.request("POST", "events", e, z.object({ event: z.object({ id: z.string() }).passthrough() }));
+  }
+  deepgram(action: "reserve" | "release", seconds: number) {
+    return this.request("POST", "usage/deepgram", { action, seconds }, z.object({ ok: z.boolean(), usedSec: z.number(), capSec: z.number() }));
+  }
 }
 
 export class WorkerApiError extends Error {
   constructor(
     readonly status: number,
-    action: string,
+    route: string,
     readonly body: unknown,
   ) {
-    super(`worker API ${action} failed with HTTP ${status}: ${JSON.stringify(body)}`);
+    super(`worker API ${route} failed with HTTP ${status}: ${JSON.stringify(body)}`);
   }
 }
 
-// Validates the fields the worker relies on; passthrough keeps the rest.
+// Validate the fields the worker relies on; passthrough keeps the rest.
 const taskSchema = z
   .object({
     id: z.string(),
@@ -56,3 +74,14 @@ const taskSchema = z
     attempts: z.number(),
   })
   .passthrough() as unknown as z.ZodType<Task>;
+
+const sourceSchema = z
+  .object({
+    id: z.string(),
+    kind: z.enum(["url", "upload"]),
+    url: z.string().nullable(),
+    title: z.string().nullable(),
+    durationSec: z.number().nullable(),
+    status: z.string(),
+  })
+  .passthrough() as unknown as z.ZodType<Source>;

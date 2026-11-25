@@ -67,9 +67,25 @@ if (py.ok) {
   try {
     const found = JSON.parse(firstLine(probe.out)) as Record<string, boolean>;
     const missing = mods.filter((m) => !found[m]);
-    add("Python packages (py/requirements.txt)", missing.length ? later("M2") : "pass", missing.length ? `missing: ${missing.join(", ")} (needed from M2)` : "all present");
+    add("Python packages (py/requirements.txt)", missing.length ? later("now") : "pass", missing.length ? `missing: ${missing.join(", ")}` : "all present");
   } catch {
-    add("Python packages (py/requirements.txt)", later("M2"), "could not probe");
+    add("Python packages (py/requirements.txt)", later("now"), "could not probe");
+  }
+}
+
+// Python media service: one-shot check_deps imports the native libraries the way the service does.
+if (py.ok) {
+  const r = spawnSync(env.PYTHON_PATH, ["-m", "media", "check_deps"], { cwd: path.join(root, "py"), encoding: "utf8", timeout: 120_000, windowsHide: true });
+  try {
+    const resp = JSON.parse(firstLine(r.stdout ?? "")) as { ok: boolean; result?: Record<string, string>; error?: string };
+    const broken = Object.entries(resp.result ?? {}).filter(([, v]) => String(v).startsWith("ERROR"));
+    add(
+      "Media service (python -m media)",
+      resp.ok && broken.length === 0 ? "pass" : later("now"),
+      resp.ok ? (broken.length ? broken.map(([k, v]) => `${k}: ${v}`).join("; ") : Object.entries(resp.result ?? {}).map(([k, v]) => `${k} ${v}`).join(", ")) : (resp.error ?? "failed"),
+    );
+  } catch {
+    add("Media service (python -m media)", later("now"), firstLine(r.stderr ?? "") || "did not respond");
   }
 }
 
@@ -78,8 +94,8 @@ const ytCli = run("yt-dlp", ["--version"]);
 const ytMod = py.ok ? run(env.PYTHON_PATH, ["-m", "yt_dlp", "--version"]) : { ok: false, out: "" };
 add(
   "yt-dlp",
-  ytCli.ok || ytMod.ok ? "pass" : later("M2"),
-  ytCli.ok ? `CLI ${firstLine(ytCli.out)}` : ytMod.ok ? `python -m yt_dlp ${firstLine(ytMod.out)}` : "not installed (needed from M2: pip install yt-dlp)",
+  ytCli.ok || ytMod.ok ? "pass" : later("now"),
+  ytCli.ok ? `CLI ${firstLine(ytCli.out)}` : ytMod.ok ? `python -m yt_dlp ${firstLine(ytMod.out)}` : "not installed (python -m pip install -r py/requirements.txt)",
 );
 
 // FFmpeg

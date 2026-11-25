@@ -8,6 +8,7 @@ import {
   failTask,
   heartbeatBodySchema,
   heartbeatTask,
+  markSourceFailed,
   QueueError,
   type Db,
 } from "@clip/shared";
@@ -22,9 +23,9 @@ export interface WorkerApiDeps {
   now?: () => Date;
 }
 
-const json = (body: unknown, status = 200) => Response.json(body, { status });
+export const json = (body: unknown, status = 200) => Response.json(body, { status });
 
-function authorized(req: Request, token: string): boolean {
+export function authorized(req: Request, token: string): boolean {
   const header = req.headers.get("authorization") ?? "";
   const m = /^Bearer\s+(.+)$/i.exec(header);
   if (!m) return false;
@@ -43,7 +44,15 @@ const handlers = {
     },
   },
   complete: { schema: completeBodySchema, run: (db: Db, body: z.infer<typeof completeBodySchema>, now: Date) => completeTask(db, body, now) },
-  fail: { schema: failBodySchema, run: (db: Db, body: z.infer<typeof failBodySchema>, now: Date) => ({ task: failTask(db, body, now) }) },
+  fail: {
+    schema: failBodySchema,
+    run: (db: Db, body: z.infer<typeof failBodySchema>, now: Date) => {
+      const task = failTask(db, body, now);
+      // Out of attempts: the whole source stops here, so surface it on the job.
+      if (task.status === "failed" && task.sourceId) markSourceFailed(db, task.sourceId, task.error ?? "failed", now);
+      return { task };
+    },
+  },
 } as const;
 
 /** Framework-agnostic handler for POST /api/worker/{action}. Bearer WORKER_TOKEN auth, zod-validated bodies. */
