@@ -1,0 +1,30 @@
+{
+  "name": "clip-engine",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "tsx scripts/run-web.ts dev",
+    "build": "pnpm --filter @clip/web build",
+    "start": "tsx scripts/run-web.ts start",
+    "worker": "pnpm --filter @clip/worker start",
+    "test": "vitest run",
+    "lint": "pnpm -r typecheck && tsc -p tsconfig.scripts.json",
+    "doctor": "tsx scripts/doctor.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx scripts/db-migrate.ts",
+    "db:seed": "tsx scripts/db-seed.ts",
+    "sfx:scan": "tsx scripts/sfx-scan.ts"
+  },
+  "devDependencies": {
+    "@clip/shared": "workspace:*",
+    "@types/node": "^22.20.5",
+    "dotenv": "^18.0.10",
+    "drizzle-kit": "^0.31.11",
+    "tsx": "^4.23.15",
+    "typescript": "~5.9.3",
+    "vitest": "^3.2.7"
+  }
+}

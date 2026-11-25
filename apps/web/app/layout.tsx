@@ -1,0 +1,28 @@
+import type { Metadata } from "next";
+import Link from "next/link";
+import "./globals.css";
+
+export const metadata: Metadata = {
+  title: "Clip Engine",
+  description: "Long video in, ready-to-post vertical clips out.",
+};
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="en">
+      <body className="min-h-screen antialiased">
+        <header className="border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+          <nav className="mx-auto flex max-w-6xl items-center gap-6 px-4 py-3 text-sm">
+            <Link href="/" className="font-semibold tracking-tight">
+              Clip Engine
+            </Link>
+            <Link href="/" className="text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100">
+              Overview
+            </Link>
+          </nav>
+        </header>
+        <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
+      </body>
+    </html>
+  );
+}

@@ -1,0 +1,12 @@
+node_modules/
+.next/
+*.tsbuildinfo
+next-env.d.ts
+.env
+data/
+storage/
+assets/.cache/
+__pycache__/
+.venv/
+.pytest_cache/
+*.log

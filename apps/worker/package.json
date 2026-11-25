@@ -1,0 +1,14 @@
+{
+  "name": "@clip/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@clip/shared": "workspace:*",
+    "zod": "^4.6.7"
+  }
+}
