@@ -47,8 +47,15 @@ try {
   const n = (sqlite.prepare("select count(*) n from operators").get() as { n: number }).n;
   add("Database + migrations", "pass", `${env.DATABASE_PATH} (${n} operators)`);
   if (n === 0) add("Seed data", "warn", "no operators: run `pnpm db:seed`");
-  const sfxRows = (sqlite.prepare("select count(*) n from sfx where enabled = 1").get() as { n: number }).n;
-  add("SFX library scanned", sfxRows > 0 ? "pass" : later("M5"), sfxRows > 0 ? `${sfxRows} sounds` : "no sounds scanned yet (needed from M5: `pnpm sfx:scan`)");
+  const sfxRows = sqlite.prepare("select category, count(*) n from sfx where enabled = 1 and missing = 0 and cached_path is not null group by category").all() as { category: string; n: number }[];
+  const sfxTotal = sfxRows.reduce((n, r) => n + r.n, 0);
+  add(
+    "SFX library",
+    sfxTotal > 0 ? "pass" : "warn",
+    sfxTotal > 0
+      ? `${sfxTotal} usable sounds (${sfxRows.map((r) => `${r.category} ${r.n}`).join(", ")})`
+      : "no usable sounds: add files to assets/sfx/<category>/ and run `pnpm sfx:scan` (clips get no SFX until then)",
+  );
   sqlite.close();
 } catch (e) {
   add("Database + migrations", "fail", e instanceof Error ? e.message : String(e));

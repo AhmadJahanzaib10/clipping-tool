@@ -21,3 +21,5 @@ export * from "./selection/finalize";
 export * from "./selection/check";
 export * from "./clips";
 export * from "./schemas/plan";
+export * from "./sfx/ffmpeg";
+export * from "./sfx/scan";

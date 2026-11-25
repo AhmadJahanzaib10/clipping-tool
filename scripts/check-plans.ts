@@ -66,6 +66,14 @@ for (const c of sourceClips(db, sourceId)) {
     const plain = plan.crop.keyframes.filter((k) => !k.jump);
     for (let i = 1; i < plain.length; i++) if (plain[i]!.t - plain[i - 1]!.t < 0.5 - 1e-6) { console.log(bad("more than 2 keyframes/s")); break; }
   }
+  if (plan.sfx.length) {
+    console.log(`    sfx: ${plan.sfx.map((c) => `${c.at.toFixed(1)}s ${c.category}`).join(", ")}`);
+    const sorted = [...plan.sfx].sort((a, b) => a.at - b.at);
+    for (let i = 1; i < sorted.length; i++) {
+      if (sorted[i]!.at - sorted[i - 1]!.at < 1.0 - 1e-6) console.log(bad(`SFX cues ${sorted[i - 1]!.at}s and ${sorted[i]!.at}s are < 1 s apart`));
+      if (sorted[i]!.sfxId === sorted[i - 1]!.sfxId) console.log(bad(`same SFX file twice in a row at ${sorted[i]!.at}s`));
+    }
+  } else console.log("    sfx: none");
   const main = words.filter((w) => !w.teaser);
   const order = main.every((w, i) => w.e >= w.s && (i === 0 || w.s >= main[i - 1]!.e - 1e-6));
   const inside = words.every((w) => w.s >= -1e-6 && w.e <= plan.duration + 1e-6);

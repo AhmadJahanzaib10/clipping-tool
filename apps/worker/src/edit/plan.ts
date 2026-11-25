@@ -94,6 +94,7 @@ export function buildPlan(i: PlanInput): { plan: Plan; words: PlanWord[] } {
     crop,
     zoom,
     cuts,
+    sfx: [],
     stats: {
       removedPauses: tl.removedPauses,
       removedFillers: tl.removedFillers,

@@ -103,6 +103,12 @@ export const sfx = sqliteTable(
     enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
     cachedPath: text("cached_path"),
     waveformPath: text("waveform_path"),
+    /** Scan bookkeeping (SPEC §10.2: skip unchanged files by hash + mtime). */
+    hash: text("hash"),
+    mtimeMs: real("mtime_ms"),
+    sizeBytes: integer("size_bytes"),
+    /** File no longer in assets/sfx (kept for history; never used by the planner). */
+    missing: integer("missing", { mode: "boolean" }).notNull().default(false),
     updatedAt: text("updated_at").notNull(),
   },
   (t) => [index("sfx_category_idx").on(t.category)],

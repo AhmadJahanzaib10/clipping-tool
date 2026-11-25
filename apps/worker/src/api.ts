@@ -63,6 +63,14 @@ export class WorkerApi {
   patchClip(clipId: string, patch: ClipPatch) {
     return this.request("PATCH", `clips/${encodeURIComponent(clipId)}`, patch, z.object({ clip: clipSchema })).then((r) => r.clip);
   }
+  sfxLibrary() {
+    return this.request(
+      "GET",
+      "sfx",
+      undefined,
+      z.object({ sfx: z.array(z.object({ id: z.string(), category: z.string(), file: z.string(), durationSec: z.number().nullable(), defaultGainDb: z.number() })) }),
+    ).then((r) => r.sfx);
+  }
   llmUsage(u: { calls: number; tokensIn: number; tokensOut: number }) {
     return this.request("POST", "usage/llm", u, z.object({ ok: z.literal(true) }).passthrough());
   }

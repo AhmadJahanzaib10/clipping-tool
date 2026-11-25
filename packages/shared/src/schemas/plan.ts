@@ -82,6 +82,8 @@ export const planSchema = z.object({
   zoom: z.array(zoomKeyframeSchema),
   /** Scene cuts in output time (also every jump cut from pacing). */
   cuts: z.array(z.number()),
+  /** Automatic SFX cues with why they were placed (the cues themselves live in the clip's edit.sfxCues). */
+  sfx: z.array(z.object({ at: z.number(), sfxId: z.string(), category: z.string(), reason: z.string(), gainDb: z.number() })).default([]),
   stats: z.object({
     removedPauses: z.number().int(),
     removedFillers: z.number().int(),

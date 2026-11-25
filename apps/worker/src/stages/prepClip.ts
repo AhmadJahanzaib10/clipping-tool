@@ -4,6 +4,7 @@ import { analysisSchema, clipFiles, makeTranscript, sectionInfoSchema, type Word
 import { z } from "zod";
 import { PermanentError, requireSourceId, type StageContext, type StageHandler } from "../context";
 import { buildPlan } from "../edit/plan";
+import { planSfx } from "../edit/sfxPlanner";
 import { readTranscript } from "./selection";
 
 const whisperResult = z.object({
@@ -51,16 +52,23 @@ export const prepClip: StageHandler = async (task, ctx) => {
   const autoLayout = clip.baseVersion === 0;
   const { plan, words: planWords } = buildPlan({ clipId, words, edit: clip.edit, config: campaign.config, analysis, section, autoLayout });
 
+  // SFX cues (SPEC §7.7 step 6, §10.3): auto cues are re-planned, manual ones from the editor are kept.
+  const library = await api.sfxLibrary();
+  const manual = clip.edit.sfxCues.filter((c) => c.source === "manual");
+  const auto = planSfx({ clipId, plan, words: planWords, library, sfx: campaign.config.sfx, manual });
+  plan.sfx = auto.map((c) => ({ at: c.at, sfxId: c.sfxId, category: c.category, reason: c.reason, gainDb: c.gainDb }));
+
   fs.writeFileSync(cf.plan, JSON.stringify(plan, null, 2));
   fs.writeFileSync(cf.words, JSON.stringify(planWords));
-  if (autoLayout && clip.edit.layout !== plan.layout) await api.patchClip(clipId, { edit: { ...clip.edit, layout: plan.layout } });
+  const sfxCues = [...manual, ...auto.map(({ category: _c, reason: _r, ...cue }) => cue)].sort((a, b) => a.at - b.at);
+  await api.patchClip(clipId, { edit: { ...clip.edit, ...(autoLayout ? { layout: plan.layout } : {}), sfxCues } });
 
   const keyframes = plan.crop.mode === "single" ? `, ${plan.crop.keyframes.length} crop keyframes` : "";
   await api.event({
     sourceId,
     clipId,
     level: "info",
-    message: `Plan: ${plan.layout} (${plan.layoutReason})${keyframes}; ${plan.duration.toFixed(1)} s after pacing (−${plan.stats.savedSec} s: ${plan.stats.removedPauses} pauses, ${plan.stats.removedFillers} fillers)${plan.stats.coldOpen ? ", cold open" : ""}, ${plan.zoom.length} zooms; words from ${from}`,
+    message: `Plan: ${plan.layout} (${plan.layoutReason})${keyframes}; ${plan.duration.toFixed(1)} s after pacing (−${plan.stats.savedSec} s: ${plan.stats.removedPauses} pauses, ${plan.stats.removedFillers} fillers)${plan.stats.coldOpen ? ", cold open" : ""}, ${plan.zoom.length} zooms, ${auto.length} SFX cues${library.length ? "" : " (library empty)"}; words from ${from}`,
   });
   return [{ type: "RENDER_BASE", sourceId, clipId, payload: task.payload }];
 };
