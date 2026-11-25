@@ -15,7 +15,9 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict
 
 from . import __version__
+from .analysis import analyze
 from .download import download_audio
+from .sections import align_section, download_full, download_section
 from .protocol import encode, handle, handle_line
 from .transcribe_local import WhisperManager
 
@@ -28,6 +30,10 @@ def make_handlers(whisper: WhisperManager) -> Dict[str, Any]:
         "download_audio": download_audio,
         "transcribe": whisper.transcribe,
         "check_deps": check_deps,
+        "download_section": download_section,
+        "download_full": download_full,
+        "align_section": align_section,
+        "analyze": analyze,
     }
 
 
@@ -62,7 +68,7 @@ def check_deps(_args: Dict[str, Any]) -> Dict[str, Any]:
     import importlib
 
     out: Dict[str, Any] = {}
-    for mod in ["numpy", "ctranslate2", "faster_whisper", "yt_dlp", "av"]:
+    for mod in ["numpy", "ctranslate2", "faster_whisper", "yt_dlp", "av", "mediapipe", "scenedetect", "cv2"]:
         try:
             m = importlib.import_module(mod)
             out[mod] = getattr(m, "__version__", None) or getattr(getattr(m, "version", None), "__version__", "ok")

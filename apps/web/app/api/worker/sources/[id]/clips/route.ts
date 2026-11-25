@@ -1,7 +1,9 @@
 import { dataDeps } from "@/lib/worker-route";
-import { handleCreateClips } from "@/lib/worker-data-api";
+import { handleCreateClips, handleSourceClips } from "@/lib/worker-data-api";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export const POST = async (req: Request, { params }: { params: Promise<{ id: string }> }) => handleCreateClips(req, (await params).id, dataDeps());
+type Ctx = { params: Promise<{ id: string }> };
+export const GET = async (req: Request, { params }: Ctx) => handleSourceClips(req, (await params).id, dataDeps());
+export const POST = async (req: Request, { params }: Ctx) => handleCreateClips(req, (await params).id, dataDeps());

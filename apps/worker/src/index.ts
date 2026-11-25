@@ -7,6 +7,9 @@ import { ingest } from "./stages/ingest";
 import { transcribe } from "./stages/transcribe";
 import { scout } from "./stages/scout";
 import { edit } from "./stages/edit";
+import { fetchSections } from "./stages/fetchSections";
+import { analyze } from "./stages/analyze";
+import { prepClip } from "./stages/prepClip";
 
 const MAX_TOTAL = 2; // SPEC §12: max 2 concurrent tasks, at most MAX_HEAVY_TASKS heavy
 const IDLE_POLL_MS = 3000;
@@ -21,6 +24,9 @@ const llmReady = Boolean(env.OPENROUTER_API_KEY && env.LLM_SCOUT_MODEL && env.LL
 const stages: Partial<Record<TaskType, StageHandler>> = {
   INGEST: ingest,
   TRANSCRIBE: transcribe,
+  FETCH_SECTIONS: fetchSections,
+  ANALYZE: analyze,
+  PREP_CLIP: prepClip,
   ...(llmReady ? { SCOUT: scout, EDIT: edit } : {}),
 };
 const log = (...args: unknown[]) => console.log(new Date().toISOString(), "[worker]", ...args);

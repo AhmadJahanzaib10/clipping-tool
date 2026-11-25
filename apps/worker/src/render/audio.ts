@@ -41,6 +41,7 @@ const probeSchema = z.object({
           width: z.number().optional(),
           height: z.number().optional(),
           duration: z.coerce.number().optional(),
+          avg_frame_rate: z.string().optional(),
           disposition: z.object({ attached_pic: z.number().optional() }).passthrough().optional(),
         })
         .passthrough(),
@@ -55,6 +56,14 @@ export interface ProbeResult {
   hasAudio: boolean;
   /** Real video streams (cover-art pictures attached to audio files don't count). */
   hasVideo: boolean;
+  fps: number | null;
+}
+
+function parseRate(r: string | undefined): number | null {
+  if (!r) return null;
+  const [n, d] = r.split("/").map(Number);
+  const v = d ? n! / d : n!;
+  return Number.isFinite(v) && v > 0 ? Math.round(v * 1000) / 1000 : null;
 }
 
 export function parseProbe(json: unknown): ProbeResult {
@@ -68,5 +77,29 @@ export function parseProbe(json: unknown): ProbeResult {
     height: video?.height ?? null,
     hasAudio: Boolean(audio),
     hasVideo: Boolean(video),
+    fps: parseRate(video?.avg_frame_rate),
   };
+}
+
+/**
+ * Cut [start, start+duration] out of an upload or the cached full download without re-encoding
+ * (SPEC §7.5). Input seeking + stream copy starts at the keyframe before `start`; the exact start is
+ * measured afterwards by audio alignment.
+ */
+export function cutSectionArgs(input: string, start: number, duration: number, out: string): string[] {
+  return [
+    "-hide_banner",
+    "-nostdin",
+    "-loglevel", "error",
+    "-y",
+    "-ss", Math.max(0, start).toFixed(3),
+    "-i", input,
+    "-t", duration.toFixed(3),
+    "-map", "0:v:0",
+    "-map", "0:a:0?",
+    "-c", "copy",
+    "-avoid_negative_ts", "make_zero",
+    "-movflags", "+faststart",
+    out,
+  ];
 }

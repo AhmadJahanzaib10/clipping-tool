@@ -56,6 +56,26 @@ const stageRankSql = sql`case ${tasks.type} ${sql.join(
 function insertTask(tx: Db | Tx, input: EnqueueTaskInput, now: Date): Task {
   const t = enqueueTaskSchema.parse(input);
   const ts = iso(now);
+  // The same stage for the same source/clip already waiting (e.g. a stage re-run twice): don't queue
+  // a duplicate run, just make sure the waiting one has at least this priority.
+  const waiting = tx
+    .select()
+    .from(tasks)
+    .where(
+      and(
+        eq(tasks.type, t.type),
+        eq(tasks.status, "pending"),
+        t.sourceId ? eq(tasks.sourceId, t.sourceId) : isNull(tasks.sourceId),
+        t.clipId ? eq(tasks.clipId, t.clipId) : isNull(tasks.clipId),
+      ),
+    )
+    .get();
+  if (waiting) {
+    if (t.priority > waiting.priority) {
+      return tx.update(tasks).set({ priority: t.priority, updatedAt: ts }).where(eq(tasks.id, waiting.id)).returning().get()!;
+    }
+    return waiting;
+  }
   return tx
     .insert(tasks)
     .values({
@@ -111,12 +131,17 @@ export function claimTask(db: Db, input: ClaimBody, now: Date = new Date()): Tas
         and(eq(tasks.status, "pending"), or(isNull(tasks.runAfter), lte(tasks.runAfter, nowIso))),
         and(eq(tasks.status, "running"), lt(tasks.leaseUntil, nowIso)),
       );
+      // Never run two copies of the same stage for the same source/clip at once (they would write the
+      // same files: on Windows the second rename fails). The copy waits until the first one finishes.
+      const busy = sql`exists (select 1 from ${tasks} as r where r.status = 'running' and r.lease_until >= ${nowIso}
+        and r.type = ${tasks.type} and r.id <> ${tasks.id}
+        and coalesce(r.source_id, '') = coalesce(${tasks.sourceId}, '') and coalesce(r.clip_id, '') = coalesce(${tasks.clipId}, ''))`;
 
       const next = tx
         .select({ id: tasks.id })
         .from(tasks)
         .leftJoin(sources, eq(tasks.sourceId, sources.id))
-        .where(and(claimable, inArray(tasks.type, types)))
+        .where(and(claimable, inArray(tasks.type, types), sql`not ${busy}`))
         .orderBy(
           desc(tasks.priority),
           asc(sql`coalesce(${sources.createdAt}, ${tasks.createdAt})`),

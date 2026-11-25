@@ -1,9 +1,12 @@
+import path from "node:path";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 import type { Db } from "./db/client";
 import { campaigns, clips, settings, sources, usage, type Clip } from "./db/schema";
 import { campaignConfigSchema, type CampaignConfig } from "./schemas/campaign";
+import { clipEditSchema } from "./schemas/clip";
+import { CLIP_STATUSES } from "./constants";
 import { clipInputSchema, initialClipEdit, type ClipInput } from "./selection/finalize";
 import { DEFAULT_SCORE_WEIGHTS, scoreWeightsSchema, type ScoreWeights } from "./selection/score";
 import { usageDate } from "./jobs";
@@ -120,4 +123,48 @@ export function replaceSourceClips(db: Db, sourceId: string, inputs: ClipInput[]
 
 export function sourceClips(db: Db, sourceId: string): Clip[] {
   return db.select().from(clips).where(eq(clips.sourceId, sourceId)).orderBy(asc(clips.rank)).all();
+}
+
+// ---------- per-clip storage (SPEC §7.5–7.8) ----------
+
+export function clipFiles(storageDir: string, clipId: string) {
+  const dir = path.join(storageDir, "clips", clipId);
+  return {
+    dir,
+    section: path.join(dir, "section.mp4"),
+    sectionInfo: path.join(dir, "section.json"),
+    analysis: path.join(dir, "analysis.json"),
+    plan: path.join(dir, "plan.json"),
+    words: path.join(dir, "words.json"),
+    base: path.join(dir, "base.mp4"),
+  };
+}
+
+/** Everything a worker stage needs about one clip. */
+export function getClipContext(db: Db, clipId: string) {
+  const clip = db.select().from(clips).where(eq(clips.id, clipId)).get();
+  if (!clip) return null;
+  const src = db.select().from(sources).where(eq(sources.id, clip.sourceId)).get();
+  const ctx = getSourceContext(db, clip.sourceId);
+  if (!src || !ctx) return null;
+  return {
+    clip,
+    source: { id: src.id, kind: src.kind, url: src.url, durationSec: src.durationSec, transcriptQuality: src.transcriptQuality },
+    campaign: ctx.campaign,
+  };
+}
+
+export const clipPatchSchema = z
+  .object({
+    edit: clipEditSchema,
+    status: z.enum(CLIP_STATUSES),
+    baseVersion: z.number().int().min(0),
+    basePath: z.string().nullable(),
+  })
+  .partial();
+export type ClipPatch = z.infer<typeof clipPatchSchema>;
+
+export function updateClip(db: Db, clipId: string, patch: ClipPatch, now: Date = new Date()): Clip | undefined {
+  const p = clipPatchSchema.parse(patch);
+  return db.update(clips).set({ ...p, updatedAt: now.toISOString() }).where(eq(clips.id, clipId)).returning().get();
 }

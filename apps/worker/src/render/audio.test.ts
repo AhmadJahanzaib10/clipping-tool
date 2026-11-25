@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractAudioArgs, parseProbe, probeArgs } from "./audio";
+import { cutSectionArgs, extractAudioArgs, parseProbe, probeArgs } from "./audio";
 
 describe("extractAudioArgs", () => {
   const args = extractAudioArgs("C:\\My Videos\\ep 1.mp4", "C:\\s\\audio.wav", "C:\\s\\audio.opus", 4);
@@ -36,17 +36,18 @@ describe("probe", () => {
       parseProbe({
         format: { duration: "612.48", filename: "x" },
         streams: [
-          { codec_type: "video", width: 1920, height: 1080 },
+          { codec_type: "video", width: 1920, height: 1080, avg_frame_rate: "30000/1001" },
           { codec_type: "audio", sample_rate: "48000" },
         ],
       }),
-    ).toEqual({ durationSec: 612.48, width: 1920, height: 1080, hasAudio: true, hasVideo: true });
+    ).toEqual({ durationSec: 612.48, width: 1920, height: 1080, hasAudio: true, hasVideo: true, fps: 29.97 });
     expect(parseProbe({ streams: [{ codec_type: "video", width: 640, height: 360 }] })).toEqual({
       durationSec: null,
       width: 640,
       height: 360,
       hasAudio: false,
       hasVideo: true,
+      fps: null,
     });
   });
 
@@ -59,5 +60,21 @@ describe("probe", () => {
       ],
     });
     expect(p).toMatchObject({ hasAudio: true, hasVideo: false, width: null });
+  });
+});
+
+describe("cutSectionArgs", () => {
+  const a = cutSectionArgs("D:\My Vids\full.mp4", 118.25, 49.5, "C:\s\section.mp4");
+  it("seeks on the input and stream-copies (no re-encode)", () => {
+    expect(a.slice(a.indexOf("-ss"), a.indexOf("-ss") + 4)).toEqual(["-ss", "118.250", "-i", "D:\My Vids\full.mp4"]);
+    expect(a[a.indexOf("-t") + 1]).toBe("49.500");
+    expect(a[a.indexOf("-c") + 1]).toBe("copy");
+    expect(a).not.toContain("libx264");
+    expect(a.at(-1)).toBe("C:\s\section.mp4");
+  });
+  it("keeps one video and the first audio stream, clamps negative starts", () => {
+    expect(a.filter((x) => x === "-map")).toHaveLength(2);
+    expect(a).toContain("0:a:0?");
+    expect(cutSectionArgs("x", -1.2, 10, "y")[cutSectionArgs("x", -1.2, 10, "y").indexOf("-ss") + 1]).toBe("0.000");
   });
 });

@@ -1,12 +1,12 @@
 import fs from "node:fs";
 import { notFound } from "next/navigation";
-import { jobDetail, loadEnv, sourceClips, sourceFiles, transcriptSchema, type Transcript } from "@clip/shared";
+import { clipFiles, jobDetail, loadEnv, planSchema, sectionInfoSchema, sourceClips, sourceFiles, transcriptSchema, type Plan, type SectionInfo, type Transcript } from "@clip/shared";
 import { AutoRefresh } from "@/components/AutoRefresh";
 import { getDb } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
-const ACTIVE = new Set(["queued", "ingesting", "transcribing", "selecting"]);
+const ACTIVE = new Set(["queued", "ingesting", "transcribing", "selecting", "fetching"]);
 const STAGES = ["queued", "ingesting", "transcribing", "selecting", "fetching", "clipping", "done"];
 const levelColor: Record<string, string> = { error: "text-red-600", warn: "text-amber-600", info: "", debug: "text-zinc-400" };
 
@@ -18,6 +18,23 @@ function readTranscript(sourceId: string): Transcript | null {
     return null;
   }
 }
+
+function readJson<T>(file: string, parse: (v: unknown) => T): T | null {
+  try {
+    return parse(JSON.parse(fs.readFileSync(file, "utf8")));
+  } catch {
+    return null;
+  }
+}
+function clipArtifacts(clipId: string): { plan: Plan | null; section: SectionInfo | null } {
+  const f = clipFiles(loadEnv().STORAGE_DIR, clipId);
+  return { plan: readJson(f.plan, (v) => planSchema.parse(v)), section: readJson(f.sectionInfo, (v) => sectionInfoSchema.parse(v)) };
+}
+const LAYOUT_STYLE: Record<string, string> = {
+  single: "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300",
+  split: "bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300",
+  fit: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
+};
 
 const fmt = (sec: number) => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, "0")}`;
 
@@ -119,6 +136,7 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
                   <th className="pr-3">Time</th>
                   <th className="pr-3">Length</th>
                   <th className="pr-3">Hooks (A / B)</th>
+                  <th className="pr-3">Plan</th>
                   <th>Title · why</th>
                 </tr>
               </thead>
@@ -136,6 +154,25 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
                     <td className="pr-3">
                       <div className="font-medium">{c.hookA}</div>
                       <div className="text-zinc-500">{c.hookB}</div>
+                    </td>
+                    <td className="pr-3 text-xs">
+                      {(() => {
+                        const { plan, section } = clipArtifacts(c.id);
+                        if (!plan) return <span className="text-zinc-400">{section ? "analyzing…" : "—"}</span>;
+                        return (
+                          <div className="space-y-0.5">
+                            <span className={`rounded px-1.5 py-0.5 font-medium ${LAYOUT_STYLE[plan.layout]}`} title={plan.layoutReason}>
+                              {plan.layout}
+                            </span>
+                            <div className="text-zinc-500">
+                              {plan.duration.toFixed(1)} s{plan.stats.savedSec > 0 ? ` (−${plan.stats.savedSec} s)` : ""}
+                              {plan.stats.coldOpen ? " · cold open" : ""}
+                              {plan.zoom.length ? ` · ${plan.zoom.length} zoom` : ""}
+                            </div>
+                            {section && <div className="text-zinc-400">{(section.bytes / 1024 / 1024).toFixed(1)} MB {section.method}</div>}
+                          </div>
+                        );
+                      })()}
                     </td>
                     <td>
                       <div>{c.title}</div>

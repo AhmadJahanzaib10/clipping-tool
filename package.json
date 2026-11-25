@@ -19,7 +19,9 @@
     "sfx:scan": "tsx scripts/sfx-scan.ts",
     "test:py": "python -m pytest -q py",
     "check:clips": "tsx scripts/check-clips.ts",
-    "requeue": "tsx scripts/requeue.ts"
+    "requeue": "tsx scripts/requeue.ts",
+    "check:plans": "tsx scripts/check-plans.ts",
+    "release:stale": "tsx scripts/release-stale.ts"
   },
   "devDependencies": {
     "@clip/shared": "workspace:*",
@@ -28,6 +30,7 @@
     "drizzle-kit": "^0.31.11",
     "tsx": "^4.23.15",
     "typescript": "~5.9.3",
-    "vitest": "^3.2.7"
+    "vitest": "^3.2.7",
+    "zod": "^4.6.7"
   }
 }

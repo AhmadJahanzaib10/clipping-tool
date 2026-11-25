@@ -57,6 +57,40 @@ describe("enqueue + claim basics", () => {
     expect(claim("w2", at(LEASE_MS - 1))).toBeNull();
   });
 
+  it("does not queue a duplicate of a waiting task (same type, source, clip)", () => {
+    addSource("s1", T0);
+    const a = add("FETCH_SECTIONS", { sourceId: "s1" });
+    const b = add("FETCH_SECTIONS", { sourceId: "s1" });
+    expect(b.id).toBe(a.id);
+    // A higher priority upgrades the waiting task instead.
+    expect(add("FETCH_SECTIONS", { sourceId: "s1", priority: PRIORITY_USER }).priority).toBe(PRIORITY_USER);
+    // Different clip, or once the first is running, a new task is fine.
+    expect(enqueueTask(db, { type: "FETCH_SECTIONS", sourceId: "s1", clipId: null }).id).toBe(a.id);
+    claim("w1");
+    expect(add("FETCH_SECTIONS", { sourceId: "s1" }).id).not.toBe(a.id);
+  });
+
+  it("never runs two copies of the same stage for the same source/clip at once", () => {
+    addSource("s1", T0);
+    const first = add("FETCH_SECTIONS", { sourceId: "s1" });
+    expect(claim("w1")!.id).toBe(first.id);
+    const copy = add("FETCH_SECTIONS", { sourceId: "s1" }); // queued while the first runs
+    expect(copy.id).not.toBe(first.id);
+    expect(claim("w2")).toBeNull(); // the copy waits
+    completeTask(db, { taskId: first.id, workerId: "w1" });
+    expect(claim("w2")!.id).toBe(copy.id);
+  });
+
+  it("a crashed copy (expired lease) does not block the other", () => {
+    addSource("s1", T0);
+    const first = add("ANALYZE", { sourceId: "s1" });
+    claim("w1", T0);
+    add("ANALYZE", { sourceId: "s1" });
+    // After the lease expires, the claim can take either task; nothing stays blocked.
+    expect(claim("w2", at(LEASE_MS + 1))).not.toBeNull();
+    expect(first.id).toBeTruthy();
+  });
+
   it("validates input", () => {
     expect(() => enqueueTask(db, { type: "NOPE" as TaskType })).toThrow();
     expect(() => claimTask(db, { workerId: "" })).toThrow();

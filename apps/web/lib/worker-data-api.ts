@@ -3,6 +3,10 @@ import { z } from "zod";
 import {
   addEvent,
   addLlmUsage,
+  clipPatchSchema,
+  getClipContext,
+  sourceClips,
+  updateClip,
   createClipsSchema,
   EVENT_LEVELS,
   getSourceContext,
@@ -27,6 +31,9 @@ import { authorized, json } from "./worker-api";
  *   GET   /api/worker/sources/:id/context  campaign config, score weights, few-shot examples
  *   POST  /api/worker/sources/:id/clips    body: { clips: ClipInput[] } (replaces candidate clips)
  *   POST  /api/worker/usage/llm            body: { calls, tokensIn, tokensOut }
+ *   GET   /api/worker/sources/:id/clips    the source's clips (ranked)
+ *   GET   /api/worker/clips/:id            clip + source + campaign
+ *   PATCH /api/worker/clips/:id            body: { edit?, status?, baseVersion?, basePath? }
  */
 
 export interface DataApiDeps {
@@ -117,4 +124,21 @@ export async function handleLlmUsage(req: Request, deps: DataApiDeps): Promise<R
   if ("res" in b) return b.res;
   addLlmUsage(deps.db, b.data, deps.now?.());
   return json({ ok: true, usage: getUsage(deps.db, deps.now?.()) });
+}
+
+export async function handleSourceClips(req: Request, id: string, deps: DataApiDeps): Promise<Response> {
+  if (!authorized(req, deps.token)) return json({ error: "unauthorized" }, 401);
+  return json({ clips: sourceClips(deps.db, id) });
+}
+
+export async function handleClip(req: Request, id: string, deps: DataApiDeps): Promise<Response> {
+  if (!authorized(req, deps.token)) return json({ error: "unauthorized" }, 401);
+  if (req.method === "GET") {
+    const ctx = getClipContext(deps.db, id);
+    return ctx ? json(ctx) : json({ error: "not_found" }, 404);
+  }
+  const b = await body(req, clipPatchSchema);
+  if ("res" in b) return b.res;
+  const clip = updateClip(deps.db, id, b.data, deps.now?.());
+  return clip ? json({ clip }) : json({ error: "not_found" }, 404);
 }

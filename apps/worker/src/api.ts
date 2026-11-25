@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { campaignConfigSchema, scoreWeightsSchema, type ClipInput, type CompleteBody, type EnqueueTaskInput, type EventLevel, type Source, type SourcePatch, type Task, type TaskClass, type TaskType } from "@clip/shared";
+import { campaignConfigSchema, clipEditSchema, scoreWeightsSchema, type Clip, type ClipInput, type ClipPatch, type CompleteBody, type EnqueueTaskInput, type EventLevel, type Source, type SourcePatch, type Task, type TaskClass, type TaskType } from "@clip/shared";
 
 /** Thin client for /api/worker/*. Workers never touch SQLite directly (SPEC §2). */
 export class WorkerApi {
@@ -54,6 +54,15 @@ export class WorkerApi {
   createClips(sourceId: string, clips: ClipInput[]) {
     return this.request("POST", `sources/${encodeURIComponent(sourceId)}/clips`, { clips }, z.object({ clips: z.array(z.object({ id: z.string(), rank: z.number().nullable() })) }));
   }
+  sourceClips(sourceId: string) {
+    return this.request("GET", `sources/${encodeURIComponent(sourceId)}/clips`, undefined, z.object({ clips: z.array(clipSchema) })).then((r) => r.clips);
+  }
+  clip(clipId: string) {
+    return this.request("GET", `clips/${encodeURIComponent(clipId)}`, undefined, clipContextSchema);
+  }
+  patchClip(clipId: string, patch: ClipPatch) {
+    return this.request("PATCH", `clips/${encodeURIComponent(clipId)}`, patch, z.object({ clip: clipSchema })).then((r) => r.clip);
+  }
   llmUsage(u: { calls: number; tokensIn: number; tokensOut: number }) {
     return this.request("POST", "usage/llm", u, z.object({ ok: z.literal(true) }).passthrough());
   }
@@ -100,4 +109,29 @@ const sourceContextSchema = z.object({
   campaign: z.object({ id: z.string(), name: z.string(), niche: z.string(), config: campaignConfigSchema }),
   scoreWeights: scoreWeightsSchema,
   fewShot: z.array(z.object({ hook: z.string(), firstLine: z.string(), lengthSec: z.number(), views: z.number() })),
+});
+
+const clipSchema = z
+  .object({
+    id: z.string(),
+    sourceId: z.string(),
+    rank: z.number().nullable(),
+    startSec: z.number(),
+    endSec: z.number(),
+    status: z.string(),
+    baseVersion: z.number(),
+    edit: clipEditSchema.nullable(),
+  })
+  .passthrough() as unknown as z.ZodType<Clip>;
+
+const clipContextSchema = z.object({
+  clip: clipSchema,
+  source: z.object({
+    id: z.string(),
+    kind: z.enum(["url", "upload"]),
+    url: z.string().nullable(),
+    durationSec: z.number().nullable(),
+    transcriptQuality: z.enum(["rough", "precise"]).nullable(),
+  }),
+  campaign: z.object({ id: z.string(), name: z.string(), niche: z.string(), config: campaignConfigSchema }),
 });
