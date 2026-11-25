@@ -4,6 +4,7 @@ import { desc, eq } from "drizzle-orm";
 import { getUsage, loadEnv, taskCounts } from "@clip/shared";
 import { schema } from "@clip/shared/db";
 import { getDb } from "@/lib/db";
+import { RetryButton } from "@/components/RetryButton";
 
 export const dynamic = "force-dynamic";
 
@@ -46,7 +47,8 @@ export default function OverviewPage() {
   const recentSources = db.select().from(sources).orderBy(desc(sources.createdAt)).limit(10).all();
   const running = db.select().from(tasks).where(eq(tasks.status, "running")).all();
   const failed = db.select().from(tasks).where(eq(tasks.status, "failed")).orderBy(desc(tasks.updatedAt)).limit(10).all();
-  const deepgramMin = getUsage(db).deepgramSeconds / 60;
+  const usageToday = getUsage(db);
+  const deepgramMin = usageToday.deepgramSeconds / 60;
   const freeGb = freeDiskGb(env.STORAGE_DIR);
   const workers = [...new Set(running.map((t) => t.workerId).filter(Boolean))];
 
@@ -78,12 +80,15 @@ export default function OverviewPage() {
             ))}
           </ul>
         </Card>
-        <Card title="Deepgram today">
+        <Card title="Usage today">
           <Stat label={`minutes of ${env.DEEPGRAM_DAILY_CAP_MIN} cap (UTC day)`} value={deepgramMin.toFixed(1)} />
           <div className="mt-2 h-1.5 rounded bg-zinc-100 dark:bg-zinc-800">
             <div className="h-1.5 rounded bg-blue-600" style={{ width: `${Math.min(100, (deepgramMin / env.DEEPGRAM_DAILY_CAP_MIN) * 100)}%` }} />
           </div>
           {!env.DEEPGRAM_API_KEY && <p className="mt-2 text-xs text-zinc-500">No API key: transcription uses captions or Whisper.</p>}
+          <p className="mt-2 text-xs text-zinc-500">
+            LLM today: {usageToday.llmCalls} calls, {(usageToday.llmTokensIn / 1000).toFixed(0)}k in / {(usageToday.llmTokensOut / 1000).toFixed(0)}k out
+          </p>
         </Card>
         <Card title="Disk">
           <Stat label="GB free on storage drive" value={freeGb === null ? "?" : freeGb.toFixed(0)} />
@@ -149,8 +154,16 @@ export default function OverviewPage() {
         ) : (
           <ul className="space-y-1 text-sm">
             {failed.map((t) => (
-              <li key={t.id}>
-                <span className="font-mono">{t.type}</span> <span className="text-zinc-500">({t.attempts} attempts)</span>: {t.error}
+              <li key={t.id} className="flex items-start gap-3">
+                <RetryButton taskId={t.id} />
+                <span>
+                  <span className="font-mono">{t.type}</span> <span className="text-zinc-500">({t.attempts} attempts)</span>: {t.error?.split("\n")[0]}
+                  {t.sourceId && (
+                    <Link className="ml-2 text-zinc-500 underline" href={`/jobs/${t.sourceId}`}>
+                      job
+                    </Link>
+                  )}
+                </span>
               </li>
             ))}
           </ul>

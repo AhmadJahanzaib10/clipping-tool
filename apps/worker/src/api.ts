@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { CompleteBody, EnqueueTaskInput, EventLevel, Source, SourcePatch, Task, TaskClass, TaskType } from "@clip/shared";
+import { campaignConfigSchema, scoreWeightsSchema, type ClipInput, type CompleteBody, type EnqueueTaskInput, type EventLevel, type Source, type SourcePatch, type Task, type TaskClass, type TaskType } from "@clip/shared";
 
 /** Thin client for /api/worker/*. Workers never touch SQLite directly (SPEC §2). */
 export class WorkerApi {
@@ -48,6 +48,15 @@ export class WorkerApi {
   event(e: { sourceId?: string | null; clipId?: string | null; level: EventLevel; message: string; data?: unknown }) {
     return this.request("POST", "events", e, z.object({ event: z.object({ id: z.string() }).passthrough() }));
   }
+  context(sourceId: string) {
+    return this.request("GET", `sources/${encodeURIComponent(sourceId)}/context`, undefined, sourceContextSchema);
+  }
+  createClips(sourceId: string, clips: ClipInput[]) {
+    return this.request("POST", `sources/${encodeURIComponent(sourceId)}/clips`, { clips }, z.object({ clips: z.array(z.object({ id: z.string(), rank: z.number().nullable() })) }));
+  }
+  llmUsage(u: { calls: number; tokensIn: number; tokensOut: number }) {
+    return this.request("POST", "usage/llm", u, z.object({ ok: z.literal(true) }).passthrough());
+  }
   deepgram(action: "reserve" | "release", seconds: number) {
     return this.request("POST", "usage/deepgram", { action, seconds }, z.object({ ok: z.boolean(), usedSec: z.number(), capSec: z.number() }));
   }
@@ -85,3 +94,10 @@ const sourceSchema = z
     status: z.string(),
   })
   .passthrough() as unknown as z.ZodType<Source>;
+
+const sourceContextSchema = z.object({
+  sourceId: z.string(),
+  campaign: z.object({ id: z.string(), name: z.string(), niche: z.string(), config: campaignConfigSchema }),
+  scoreWeights: scoreWeightsSchema,
+  fewShot: z.array(z.object({ hook: z.string(), firstLine: z.string(), lengthSec: z.number(), views: z.number() })),
+});

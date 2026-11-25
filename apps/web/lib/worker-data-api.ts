@@ -1,6 +1,20 @@
 import { eq } from "drizzle-orm";
 import { z } from "zod";
-import { addEvent, EVENT_LEVELS, getUsage, releaseDeepgram, reserveDeepgram, sourcePatchSchema, updateSource, type Db } from "@clip/shared";
+import {
+  addEvent,
+  addLlmUsage,
+  createClipsSchema,
+  EVENT_LEVELS,
+  getSourceContext,
+  getUsage,
+  llmUsageSchema,
+  releaseDeepgram,
+  replaceSourceClips,
+  reserveDeepgram,
+  sourcePatchSchema,
+  updateSource,
+  type Db,
+} from "@clip/shared";
 import { schema } from "@clip/shared/db";
 import { authorized, json } from "./worker-api";
 
@@ -10,6 +24,9 @@ import { authorized, json } from "./worker-api";
  *   PATCH /api/worker/sources/:id          body: SourcePatch
  *   POST  /api/worker/events                body: { sourceId?, clipId?, level, message, data? }
  *   POST  /api/worker/usage/deepgram        body: { action: "reserve" | "release", seconds }
+ *   GET   /api/worker/sources/:id/context  campaign config, score weights, few-shot examples
+ *   POST  /api/worker/sources/:id/clips    body: { clips: ClipInput[] } (replaces candidate clips)
+ *   POST  /api/worker/usage/llm            body: { calls, tokensIn, tokensOut }
  */
 
 export interface DataApiDeps {
@@ -74,4 +91,30 @@ export async function handleDeepgramUsage(req: Request, deps: DataApiDeps): Prom
   }
   releaseDeepgram(deps.db, b.data.seconds, now);
   return json({ ok: true, usedSec: getUsage(deps.db, now).deepgramSeconds, capSec: deps.deepgramCapSec });
+}
+
+export async function handleSourceContext(req: Request, id: string, deps: DataApiDeps): Promise<Response> {
+  if (!authorized(req, deps.token)) return json({ error: "unauthorized" }, 401);
+  const ctx = getSourceContext(deps.db, id);
+  return ctx ? json(ctx) : json({ error: "not_found" }, 404);
+}
+
+export async function handleCreateClips(req: Request, id: string, deps: DataApiDeps): Promise<Response> {
+  if (!authorized(req, deps.token)) return json({ error: "unauthorized" }, 401);
+  const b = await body(req, createClipsSchema);
+  if ("res" in b) return b.res;
+  try {
+    const clips = replaceSourceClips(deps.db, id, b.data.clips, deps.now?.());
+    return json({ clips: clips.map((c) => ({ id: c.id, rank: c.rank })) });
+  } catch (e) {
+    return json({ error: e instanceof Error ? e.message : String(e) }, 404);
+  }
+}
+
+export async function handleLlmUsage(req: Request, deps: DataApiDeps): Promise<Response> {
+  if (!authorized(req, deps.token)) return json({ error: "unauthorized" }, 401);
+  const b = await body(req, llmUsageSchema);
+  if ("res" in b) return b.res;
+  addLlmUsage(deps.db, b.data, deps.now?.());
+  return json({ ok: true, usage: getUsage(deps.db, deps.now?.()) });
 }

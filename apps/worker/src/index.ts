@@ -5,17 +5,24 @@ import { PermanentError, type StageHandler } from "./context";
 import { MediaService } from "./mediaService";
 import { ingest } from "./stages/ingest";
 import { transcribe } from "./stages/transcribe";
-
-/** Stage registry: the worker only claims task types it has a handler for. */
-const stages: Partial<Record<TaskType, StageHandler>> = {
-  INGEST: ingest,
-  TRANSCRIBE: transcribe,
-};
+import { scout } from "./stages/scout";
+import { edit } from "./stages/edit";
 
 const MAX_TOTAL = 2; // SPEC §12: max 2 concurrent tasks, at most MAX_HEAVY_TASKS heavy
 const IDLE_POLL_MS = 3000;
 
 const env = loadEnv();
+const llmReady = Boolean(env.OPENROUTER_API_KEY && env.LLM_SCOUT_MODEL && env.LLM_EDITOR_MODEL);
+
+/**
+ * Stage registry: the worker only claims task types it has a handler for. LLM stages are only
+ * registered when OpenRouter is configured, so their tasks wait (pending) instead of burning retries.
+ */
+const stages: Partial<Record<TaskType, StageHandler>> = {
+  INGEST: ingest,
+  TRANSCRIBE: transcribe,
+  ...(llmReady ? { SCOUT: scout, EDIT: edit } : {}),
+};
 const log = (...args: unknown[]) => console.log(new Date().toISOString(), "[worker]", ...args);
 const api = new WorkerApi(env.API_BASE_URL, env.WORKER_TOKEN, `${os.hostname()}-${process.pid}`);
 const media = new MediaService({
@@ -62,6 +69,7 @@ async function runTask(task: Task, handler: StageHandler) {
 async function main() {
   const types = Object.keys(stages) as TaskType[];
   log(`worker ${api.workerId} polling ${env.API_BASE_URL} for: ${types.join(", ")}`);
+  if (!llmReady) log("SCOUT/EDIT disabled: set OPENROUTER_API_KEY, LLM_SCOUT_MODEL and LLM_EDITOR_MODEL in .env, then restart the worker");
 
   process.on("SIGINT", () => {
     if (stopping) process.exit(1);

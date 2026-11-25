@@ -38,14 +38,17 @@ export const ingest: StageHandler = async (task, { env, api, media, signal }) =>
   if (src.kind === "url") {
     if (!src.url) throw new PermanentError("URL source without url");
     const r = await media.call("download_audio", { url: src.url, outDir: files.dir, nodePath: process.execPath }, downloadResultSchema, { signal });
-    if (r.audioFormat.vcodec && r.audioFormat.vcodec !== "none") {
-      throw new PermanentError(`downloaded format ${r.audioFormat.formatId} contains video (${r.audioFormat.vcodec}); refusing`);
+    // Audio-first guarantee (SPEC §7.1): verify the file itself, not only yt-dlp's metadata.
+    const fileProbe = parseProbe(JSON.parse((await runProcess(env.FFPROBE_PATH, probeArgs(r.audioPath), { signal })).stdout));
+    if (fileProbe.hasVideo || (r.audioFormat.vcodec && r.audioFormat.vcodec !== "none")) {
+      throw new PermanentError(`downloaded file contains video (format ${r.audioFormat.formatId}, ${r.audioFormat.vcodec}); refusing`);
     }
+    if (!fileProbe.hasAudio) throw new PermanentError("downloaded file has no audio stream");
     await api.patchSource(sourceId, { title: r.title ?? null, durationSec: r.durationSec ?? null, width: r.width ?? null, height: r.height ?? null });
     await api.event({
       sourceId,
       level: "info",
-      message: `Audio downloaded: ${mb(r.audioBytes)} (format ${r.audioFormat.formatId}, ${r.audioFormat.acodec}, video: none). Captions: ${r.captionsKind ? `${r.captionsKind} ${r.captionsLang}` : "none"}`,
+      message: `Audio downloaded: ${mb(r.audioBytes)} (format ${r.audioFormat.formatId ?? "?"}, ${r.audioFormat.acodec ?? "?"}; ffprobe: audio only). Captions: ${r.captionsKind ? `${r.captionsKind} ${r.captionsLang}` : "none"}`,
       data: { audioBytes: r.audioBytes, format: r.audioFormat, captions: r.captionsKind },
     });
     input = r.audioPath;
@@ -68,5 +71,5 @@ export const ingest: StageHandler = async (task, { env, api, media, signal }) =>
     level: "info",
     message: `Audio extracted in ${((Date.now() - t0) / 1000).toFixed(1)} s: wav ${mb(fs.statSync(files.wav).size)}, opus ${mb(fs.statSync(files.opus).size)}`,
   });
-  return [{ type: "TRANSCRIBE", sourceId }];
+  return [{ type: "TRANSCRIBE", sourceId, payload: task.payload }];
 };

@@ -17,7 +17,9 @@
     "db:migrate": "tsx scripts/db-migrate.ts",
     "db:seed": "tsx scripts/db-seed.ts",
     "sfx:scan": "tsx scripts/sfx-scan.ts",
-    "test:py": "python -m pytest -q py"
+    "test:py": "python -m pytest -q py",
+    "check:clips": "tsx scripts/check-clips.ts",
+    "requeue": "tsx scripts/requeue.ts"
   },
   "devDependencies": {
     "@clip/shared": "workspace:*",

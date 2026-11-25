@@ -41,6 +41,7 @@ const probeSchema = z.object({
           width: z.number().optional(),
           height: z.number().optional(),
           duration: z.coerce.number().optional(),
+          disposition: z.object({ attached_pic: z.number().optional() }).passthrough().optional(),
         })
         .passthrough(),
     )
@@ -52,11 +53,13 @@ export interface ProbeResult {
   width: number | null;
   height: number | null;
   hasAudio: boolean;
+  /** Real video streams (cover-art pictures attached to audio files don't count). */
+  hasVideo: boolean;
 }
 
 export function parseProbe(json: unknown): ProbeResult {
   const p = probeSchema.parse(json);
-  const video = p.streams.find((s) => s.codec_type === "video");
+  const video = p.streams.find((s) => s.codec_type === "video" && !s.disposition?.attached_pic);
   const audio = p.streams.find((s) => s.codec_type === "audio");
   const duration = p.format?.duration ?? audio?.duration ?? video?.duration;
   return {
@@ -64,5 +67,6 @@ export function parseProbe(json: unknown): ProbeResult {
     width: video?.width ?? null,
     height: video?.height ?? null,
     hasAudio: Boolean(audio),
+    hasVideo: Boolean(video),
   };
 }

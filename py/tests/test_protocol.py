@@ -4,7 +4,7 @@ import subprocess
 import sys
 import time
 
-from media.download import build_ydl_opts, pick_subtitle
+from media.download import build_ydl_opts, fetch_captions, pick_caption_track
 from media.protocol import encode, handle_line
 from media.transcribe_local import WhisperManager
 
@@ -35,26 +35,60 @@ def test_encode_is_single_ascii_line():
     assert json.loads(s)["result"]["t"] == "line1\nline2 café"
 
 
-def test_pick_subtitle_prefers_manual_then_plain_en(tmp_path):
-    files = {}
-    for lang in ["en-orig", "en", "en-GB"]:
-        p = tmp_path / f"a.{lang}.json3"
-        p.write_text("{}")
-        files[lang] = {"filepath": str(p)}
-    assert pick_subtitle(files, manual_langs=[])["lang"] == "en"
-    got = pick_subtitle(files, manual_langs=["en-GB"])
-    assert got["lang"] == "en-GB" and got["kind"] == "manual"
-    assert pick_subtitle({"en": {"filepath": str(tmp_path / "missing")}}, []) is None
-    assert pick_subtitle({}, []) is None
+def test_pick_caption_track_prefers_manual_then_plain_en_and_json3():
+    j = lambda lang: [{"ext": "vtt", "url": f"v-{lang}"}, {"ext": "json3", "url": f"j-{lang}"}]
+    auto = {"en-orig": j("en-orig"), "en": j("en"), "en-ar": j("en-ar"), "de": j("de")}
+    assert pick_caption_track({}, auto) == {"lang": "en", "kind": "auto", "url": "j-en"}
+    got = pick_caption_track({"en-GB": j("en-GB")}, auto)
+    assert got == {"lang": "en-GB", "kind": "manual", "url": "j-en-GB"}
+    assert pick_caption_track({}, {"en-ar": j("en-ar")}) is None  # translated tracks are never used
+    assert pick_caption_track({"en": [{"ext": "vtt", "url": "x"}]}, {}) is None  # json3 only
+    assert pick_caption_track({}, {}) is None
 
 
-def test_ydl_opts_audio_only_with_json3_subs():
+class FakeResp:
+    def __init__(self, data):
+        self.data = data
+
+    def read(self):
+        return self.data
+
+
+class FakeYdl:
+    def __init__(self, outcomes):
+        self.outcomes = list(outcomes)
+        self.calls = 0
+
+    def urlopen(self, url):
+        self.calls += 1
+        o = self.outcomes.pop(0)
+        if isinstance(o, Exception):
+            raise o
+        return FakeResp(o)
+
+
+def test_fetch_captions_retries_429_then_succeeds(tmp_path):
+    dest = tmp_path / "captions.json3"
+    ydl = FakeYdl([RuntimeError("HTTP Error 429: Too Many Requests"), b'{"events": []}'])
+    assert fetch_captions(ydl, {"lang": "en", "kind": "auto", "url": "u"}, str(dest), waits=(0, 0)) is True
+    assert ydl.calls == 2 and json.loads(dest.read_text()) == {"events": []}
+
+
+def test_fetch_captions_gives_up_without_raising(tmp_path):
+    dest = tmp_path / "captions.json3"
+    err = RuntimeError("HTTP Error 429: Too Many Requests")
+    assert fetch_captions(FakeYdl([err, err, err]), {"lang": "en", "kind": "auto", "url": "u"}, str(dest), waits=(0, 0)) is False
+    assert fetch_captions(FakeYdl([RuntimeError("HTTP Error 404")]), {"lang": "en", "kind": "auto", "url": "u"}, str(dest), waits=(0, 0)) is False
+    assert fetch_captions(FakeYdl([b"<html>not json"]), {"lang": "en", "kind": "auto", "url": "u"}, str(dest), waits=(0, 0)) is False
+    assert not dest.exists()
+
+
+def test_ydl_opts_audio_only_and_no_subtitle_writing():
     o = build_ydl_opts("C:/x y", "C:/node.exe")
     assert o["format"] == "ba"
-    assert o["subtitlesformat"] == "json3"
-    assert o["subtitleslangs"] == ["en", "en-US", "en-GB", "en-orig"]  # no regex: avoids translated tracks + 429
-    assert o["ignoreerrors"] == "only_download"  # a failed caption must not abort the audio
-    assert o["writesubtitles"] and o["writeautomaticsub"]
+    # Subtitles are fetched separately: a failed caption download must never abort the audio.
+    assert o["writesubtitles"] is False and o["writeautomaticsub"] is False
+    assert "ignoreerrors" not in o
     assert o["js_runtimes"] == {"node": {"path": "C:/node.exe"}}
     assert "js_runtimes" not in build_ydl_opts("x", None)
 

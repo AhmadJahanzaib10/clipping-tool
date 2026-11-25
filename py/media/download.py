@@ -8,14 +8,15 @@ import json
 import logging
 import os
 import shutil
+import time
 from typing import Any, Dict, List, Optional
 
 log = logging.getLogger("media.download")
 
 AUDIO_BASENAME = "audio.raw"
 SUB_PREFERENCE = ["en", "en-US", "en-GB", "en-orig"]
-# Exact list, not the regex "en.*": that also matches YouTube's auto-translated tracks
-# ("en-ar", "en-de", …), which multiplies caption requests and triggers HTTP 429.
+# Exact English codes, not the regex "en.*": that also matches YouTube's auto-translated
+# tracks ("en-ar", "en-de", …), which multiplies caption requests and triggers HTTP 429.
 SUB_LANGS = list(SUB_PREFERENCE)
 
 
@@ -37,13 +38,14 @@ class _Logger:
 
 
 def build_ydl_opts(out_dir: str, node_path: Optional[str]) -> Dict[str, Any]:
+    """Audio-only download. Captions are fetched separately (fetch_captions) so a caption
+    failure such as HTTP 429 can never abort the audio: yt-dlp drops the whole video when a
+    subtitle download fails, even with ignoreerrors."""
     opts: Dict[str, Any] = {
         "format": "ba",  # best audio-only format: no video bytes
         "outtmpl": {"default": os.path.join(out_dir, AUDIO_BASENAME + ".%(ext)s")},
-        "writesubtitles": True,
-        "writeautomaticsub": True,
-        "subtitleslangs": SUB_LANGS,
-        "subtitlesformat": "json3",
+        "writesubtitles": False,
+        "writeautomaticsub": False,
         "noplaylist": True,
         "quiet": True,
         "noprogress": True,
@@ -52,9 +54,6 @@ def build_ydl_opts(out_dir: str, node_path: Optional[str]) -> Dict[str, Any]:
         "retries": 3,
         "fragment_retries": 3,
         "overwrites": True,
-        # Captions are optional (the transcription chain falls through), so a failed caption
-        # download (e.g. HTTP 429) must not abort the audio download. Audio is checked explicitly.
-        "ignoreerrors": "only_download",
     }
     # YouTube needs a JS runtime (yt-dlp EJS). Node 22+ is supported; deno is the yt-dlp default.
     if node_path:
@@ -62,17 +61,34 @@ def build_ydl_opts(out_dir: str, node_path: Optional[str]) -> Dict[str, Any]:
     return opts
 
 
-def pick_subtitle(requested: Dict[str, Dict[str, Any]], manual_langs: List[str]) -> Optional[Dict[str, Any]]:
-    """Prefer manual captions over auto; within each, prefer plain 'en'."""
-    def rank(lang: str) -> tuple:
-        pref = SUB_PREFERENCE.index(lang) if lang in SUB_PREFERENCE else len(SUB_PREFERENCE)
-        return (0 if lang in manual_langs else 1, pref, lang)
+def pick_caption_track(subtitles: Dict[str, List[Dict[str, Any]]], automatic: Dict[str, List[Dict[str, Any]]]) -> Optional[Dict[str, Any]]:
+    """Best English json3 track: manual before auto; within each, the SUB_PREFERENCE order.
+    Only exact English codes (SUB_LANGS), never auto-translated tracks like 'en-ar'."""
+    for kind, tracks in (("manual", subtitles or {}), ("auto", automatic or {})):
+        for lang in SUB_PREFERENCE:
+            fmt = next((f for f in tracks.get(lang) or [] if f.get("ext") == "json3" and f.get("url")), None)
+            if fmt:
+                return {"lang": lang, "kind": kind, "url": fmt["url"]}
+    return None
 
-    candidates = [l for l, s in (requested or {}).items() if s.get("filepath") and os.path.exists(s["filepath"])]
-    if not candidates:
-        return None
-    best = sorted(candidates, key=rank)[0]
-    return {"lang": best, "path": requested[best]["filepath"], "kind": "manual" if best in manual_langs else "auto"}
+
+def fetch_captions(ydl, track: Dict[str, Any], dest: str, waits=(3, 8)) -> bool:
+    """Download one caption track with a short backoff on HTTP 429. Returns False on failure."""
+    for attempt in range(len(waits) + 1):
+        try:
+            data = ydl.urlopen(track["url"]).read()
+            json.loads(data)  # must be valid json3
+            with open(dest, "wb") as f:
+                f.write(data)
+            return True
+        except Exception as e:  # noqa: BLE001 - captions are optional
+            status = getattr(getattr(e, "response", None), "status", None) or getattr(e, "status", None)
+            log.warning("captions %s (%s) attempt %d failed: %s", track["lang"], track["kind"], attempt + 1, e)
+            if attempt < len(waits) and (status == 429 or "429" in str(e)):
+                time.sleep(waits[attempt])
+                continue
+            return False
+    return False
 
 
 def download_audio(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -84,25 +100,26 @@ def download_audio(args: Dict[str, Any]) -> Dict[str, Any]:
     node_path = args.get("nodePath") or shutil.which("node")
 
     with yt_dlp.YoutubeDL(build_ydl_opts(out_dir, node_path)) as ydl:
-        info = ydl.extract_info(url, download=True)
+        info = ydl.extract_info(url, download=False)
         if info is None:
             raise RuntimeError(f"yt-dlp could not extract {url}")
+        info = ydl.process_ie_result(info, download=True)
         info = ydl.sanitize_info(info)
 
-    downloads = info.get("requested_downloads") or []
-    audio_path = downloads[0].get("filepath") if downloads else None
-    if not audio_path or not os.path.exists(audio_path):
-        raise RuntimeError("yt-dlp finished without an audio file")
+        downloads = info.get("requested_downloads") or []
+        audio_path = downloads[0].get("filepath") if downloads else None
+        if not audio_path or not os.path.exists(audio_path):
+            raise RuntimeError("yt-dlp finished without an audio file")
 
-    sub = pick_subtitle(info.get("requested_subtitles") or {}, list((info.get("subtitles") or {}).keys()))
-    captions_path = None
-    if sub:
-        captions_path = os.path.join(out_dir, "captions.json3")
-        shutil.copyfile(sub["path"], captions_path)
-    for s in (info.get("requested_subtitles") or {}).values():  # per-language copies are no longer needed
-        fp = s.get("filepath")
-        if fp and os.path.exists(fp) and os.path.abspath(fp) != os.path.abspath(captions_path or ""):
-            os.remove(fp)
+        captions_path = None
+        track = pick_caption_track(info.get("subtitles") or {}, info.get("automatic_captions") or {})
+        if track:
+            dest = os.path.join(out_dir, "captions.json3")
+            if fetch_captions(ydl, track, dest):
+                captions_path = dest
+            else:
+                track = None  # the transcription chain falls through to Deepgram / Whisper
+        sub = track
 
     meta = {
         "id": info.get("id"),
@@ -124,7 +141,8 @@ def download_audio(args: Dict[str, Any]) -> Dict[str, Any]:
         **meta,
         "audioPath": audio_path,
         "audioBytes": os.path.getsize(audio_path),
-        "audioFormat": {"formatId": fmt.get("format_id"), "ext": fmt.get("ext"), "acodec": fmt.get("acodec"), "vcodec": fmt.get("vcodec")},
+        # With extract_info + process_ie_result the format fields may sit on the top-level info.
+        "audioFormat": {k: fmt.get(f) or info.get(f) for k, f in (("formatId", "format_id"), ("ext", "ext"), ("acodec", "acodec"), ("vcodec", "vcodec"))},
         "captionsPath": captions_path,
         "captionsKind": sub["kind"] if sub else None,
         "captionsLang": sub["lang"] if sub else None,

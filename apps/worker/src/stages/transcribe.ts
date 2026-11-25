@@ -89,7 +89,7 @@ export const transcribe: StageHandler = async (task, ctx) => {
         level: "info",
         message: `Transcript from ${p} (${t.quality}) in ${((Date.now() - t0) / 1000).toFixed(1)} s: ${t.words.length} words, ${t.sentences.length} sentences, ${fillers} fillers`,
       });
-      return [{ type: "SCOUT", sourceId }];
+      return [{ type: "SCOUT", sourceId, payload: task.payload }];
     } catch (e) {
       if (ctx.signal.aborted) throw e;
       const msg = e instanceof Error ? e.message : String(e);

@@ -140,10 +140,44 @@ const missingFonts = wantFonts.filter((w) => !fonts.some((f) => w.re.test(f))).m
 add("Caption fonts in assets/fonts", missingFonts.length ? later("M6") : "pass", missingFonts.length ? `missing: ${missingFonts.join(", ")} (needed from M6)` : fonts.join(", "));
 
 // API keys and models
-add("DEEPGRAM_API_KEY", env.DEEPGRAM_API_KEY ? "pass" : later("M2"), env.DEEPGRAM_API_KEY ? "set" : "not set: transcription falls back to Whisper (M2)");
-add("OPENROUTER_API_KEY", env.OPENROUTER_API_KEY ? "pass" : later("M3"), env.OPENROUTER_API_KEY ? "set" : "not set (needed from M3)");
-const models = env.LLM_SCOUT_MODEL && env.LLM_EDITOR_MODEL;
-add("LLM_SCOUT_MODEL / LLM_EDITOR_MODEL", models ? "pass" : later("M3"), models ? `${env.LLM_SCOUT_MODEL} / ${env.LLM_EDITOR_MODEL}` : "not set (needed from M3)");
+add("DEEPGRAM_API_KEY", env.DEEPGRAM_API_KEY ? "pass" : "warn", env.DEEPGRAM_API_KEY ? "set" : "not set: transcription falls back to Whisper");
+
+// OpenRouter (SCOUT / EDIT, from M3): key validity via GET /api/v1/key, model ids via the public model list.
+async function getJson(url: string, headers: Record<string, string> = {}) {
+  const res = await fetch(url, { headers, signal: AbortSignal.timeout(20_000) });
+  return { status: res.status, body: (await res.json().catch(() => null)) as unknown };
+}
+if (!env.OPENROUTER_API_KEY) {
+  add("OPENROUTER_API_KEY", later("now"), "not set: SCOUT/EDIT cannot run");
+} else {
+  try {
+    const r = await getJson("https://openrouter.ai/api/v1/key", { authorization: `Bearer ${env.OPENROUTER_API_KEY}` });
+    const data = (r.body as { data?: { label?: string; limit_remaining?: number | null } } | null)?.data;
+    add(
+      "OPENROUTER_API_KEY",
+      r.status === 200 ? "pass" : later("now"),
+      r.status === 200 ? `valid${data?.limit_remaining != null ? `, ${data.limit_remaining} credits left on key limit` : ""}` : `rejected (HTTP ${r.status})`,
+    );
+  } catch (e) {
+    add("OPENROUTER_API_KEY", "warn", `set, but could not reach openrouter.ai: ${e instanceof Error ? e.message : e}`);
+  }
+}
+if (!env.LLM_SCOUT_MODEL || !env.LLM_EDITOR_MODEL) {
+  add("LLM_SCOUT_MODEL / LLM_EDITOR_MODEL", later("now"), "not set: SCOUT/EDIT cannot run");
+} else {
+  try {
+    const r = await getJson("https://openrouter.ai/api/v1/models");
+    const ids = new Set(((r.body as { data?: { id: string }[] } | null)?.data ?? []).map((m) => m.id));
+    const unknown = [env.LLM_SCOUT_MODEL, env.LLM_EDITOR_MODEL].filter((m) => !ids.has(m));
+    add(
+      "LLM_SCOUT_MODEL / LLM_EDITOR_MODEL",
+      unknown.length ? later("now") : "pass",
+      unknown.length ? `unknown on OpenRouter: ${unknown.join(", ")}` : `${env.LLM_SCOUT_MODEL} / ${env.LLM_EDITOR_MODEL}`,
+    );
+  } catch (e) {
+    add("LLM_SCOUT_MODEL / LLM_EDITOR_MODEL", "warn", `set, but could not check: ${e instanceof Error ? e.message : e}`);
+  }
+}
 
 // Disk
 try {

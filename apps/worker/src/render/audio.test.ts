@@ -40,12 +40,24 @@ describe("probe", () => {
           { codec_type: "audio", sample_rate: "48000" },
         ],
       }),
-    ).toEqual({ durationSec: 612.48, width: 1920, height: 1080, hasAudio: true });
+    ).toEqual({ durationSec: 612.48, width: 1920, height: 1080, hasAudio: true, hasVideo: true });
     expect(parseProbe({ streams: [{ codec_type: "video", width: 640, height: 360 }] })).toEqual({
       durationSec: null,
       width: 640,
       height: 360,
       hasAudio: false,
+      hasVideo: true,
     });
+  });
+
+  it("audio-only files (even with cover art) report no video", () => {
+    const p = parseProbe({
+      format: { duration: "3966.7" },
+      streams: [
+        { codec_type: "audio", codec_name: "opus" },
+        { codec_type: "video", codec_name: "mjpeg", width: 300, height: 300, disposition: { attached_pic: 1 } },
+      ],
+    });
+    expect(p).toMatchObject({ hasAudio: true, hasVideo: false, width: null });
   });
 });

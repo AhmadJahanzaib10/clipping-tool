@@ -1,12 +1,12 @@
 import fs from "node:fs";
 import { notFound } from "next/navigation";
-import { jobDetail, loadEnv, sourceFiles, transcriptSchema, type Transcript } from "@clip/shared";
+import { jobDetail, loadEnv, sourceClips, sourceFiles, transcriptSchema, type Transcript } from "@clip/shared";
 import { AutoRefresh } from "@/components/AutoRefresh";
 import { getDb } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
-const ACTIVE = new Set(["queued", "ingesting", "transcribing"]);
+const ACTIVE = new Set(["queued", "ingesting", "transcribing", "selecting"]);
 const STAGES = ["queued", "ingesting", "transcribing", "selecting", "fetching", "clipping", "done"];
 const levelColor: Record<string, string> = { error: "text-red-600", warn: "text-amber-600", info: "", debug: "text-zinc-400" };
 
@@ -27,6 +27,7 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
   if (!d) notFound();
   const { source, events, tasks } = d;
   const transcript = readTranscript(id);
+  const clips = sourceClips(getDb(), id);
   const stageIdx = STAGES.indexOf(source.status);
 
   return (
@@ -98,13 +99,56 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
                 <span className="text-zinc-500">
                   {t.status}
                   {t.attempts > 1 ? ` (attempt ${t.attempts})` : ""}
-                  {t.status === "pending" && t.type === "SCOUT" ? " · waits for Milestone 3" : ""}
+                  {t.status === "pending" && t.type === "FETCH_SECTIONS" ? " · waits for Milestone 4" : ""}
                 </span>
               </li>
             ))}
           </ul>
         </section>
       </div>
+
+      {clips.length > 0 && (
+        <section className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+          <h2 className="mb-3 text-sm font-medium text-zinc-500">Clips ({clips.length})</h2>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="text-xs text-zinc-500">
+                <tr>
+                  <th className="py-1 pr-3">#</th>
+                  <th className="pr-3">Score</th>
+                  <th className="pr-3">Time</th>
+                  <th className="pr-3">Length</th>
+                  <th className="pr-3">Hooks (A / B)</th>
+                  <th>Title · why</th>
+                </tr>
+              </thead>
+              <tbody>
+                {clips.map((c) => (
+                  <tr key={c.id} className="border-t border-zinc-100 align-top dark:border-zinc-800">
+                    <td className="py-2 pr-3 tabular-nums">{c.rank}</td>
+                    <td className="pr-3 tabular-nums" title={c.scores ? Object.entries(c.scores).map(([k, v]) => `${k} ${v}`).join(", ") : ""}>
+                      {c.score?.toFixed(0)}
+                    </td>
+                    <td className="whitespace-nowrap pr-3 tabular-nums">
+                      {fmt(c.startSec)}–{fmt(c.endSec)}
+                    </td>
+                    <td className="pr-3 tabular-nums">{Math.round(c.endSec - c.startSec)} s</td>
+                    <td className="pr-3">
+                      <div className="font-medium">{c.hookA}</div>
+                      <div className="text-zinc-500">{c.hookB}</div>
+                    </td>
+                    <td>
+                      <div>{c.title}</div>
+                      <div className="text-xs text-zinc-500">{c.reason}</div>
+                      {c.hashtags?.length ? <div className="text-xs text-blue-600">{c.hashtags.join(" ")}</div> : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       <section className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
         <h2 className="mb-2 text-sm font-medium text-zinc-500">Event log</h2>

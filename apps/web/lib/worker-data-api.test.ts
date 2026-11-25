@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import os from "node:os";
 import { campaigns, claimTask, createJob, enqueueTask, operators, seedDb, type Db } from "./test-helpers";
 import { openDb } from "@clip/shared/db";
-import { handleDeepgramUsage, handleEvent, handleSource, type DataApiDeps } from "./worker-data-api";
+import { handleCreateClips, handleDeepgramUsage, handleEvent, handleLlmUsage, handleSource, handleSourceContext, type DataApiDeps } from "./worker-data-api";
+import { sourceClips } from "@clip/shared";
 import { handleWorkerRequest } from "./worker-api";
 
 const TOKEN = "tok";
@@ -57,6 +58,52 @@ describe("deepgram usage", () => {
     expect(await call("reserve", 500)).toEqual({ ok: true, usedSec: 500, capSec: 600 });
     expect((await call("reserve", 200)).ok).toBe(false);
     expect((await call("release", 500)).usedSec).toBe(0);
+  });
+});
+
+describe("selection endpoints", () => {
+  const clip = (rank: number, start: number) => ({
+    rank,
+    score: 70,
+    scores: { hook: 7, standalone: 7, payoff: 7, emotion: 7, novelty: 7, quotability: 7 },
+    startSec: start,
+    endSec: start + 30,
+    hookA: "Hook A",
+    hookB: "Hook B",
+    title: "T",
+    captionTiktok: "a",
+    captionInstagram: "b",
+    captionYoutube: "c",
+    hashtags: ["#x"],
+    emphasisWords: ["money"],
+    reason: "r",
+    coldOpen: { start: start + 10, end: start + 13 },
+    candidateId: "c1",
+    source: "edit",
+  });
+
+  it("returns the campaign context with defaults", async () => {
+    const r = await (await handleSourceContext(req("GET"), sourceId, deps)).json();
+    expect(r.campaign.config.minLengthSec).toBe(20);
+    expect(r.scoreWeights.hook).toBe(0.3);
+    expect(r.fewShot).toEqual([]);
+    expect((await handleSourceContext(req("GET"), "missing", deps)).status).toBe(404);
+  });
+
+  it("replaces candidate clips on retry and sets the initial edit", async () => {
+    await handleCreateClips(req("POST", { clips: [clip(1, 0), clip(2, 100)] }), sourceId, deps);
+    const r = await (await handleCreateClips(req("POST", { clips: [clip(1, 200)] }), sourceId, deps)).json();
+    expect(r.clips).toHaveLength(1);
+    const rows = sourceClips(db, sourceId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.edit).toMatchObject({ trim: { start: 200, end: 230 }, coldOpen: { enabled: true, start: 210, end: 213 }, hookChoice: "A" });
+    expect((await handleCreateClips(req("POST", { clips: [{ rank: 0 }] }), sourceId, deps)).status).toBe(400);
+  });
+
+  it("accumulates LLM usage", async () => {
+    await handleLlmUsage(req("POST", { calls: 1, tokensIn: 1000, tokensOut: 200 }), deps);
+    const r = await (await handleLlmUsage(req("POST", { calls: 2, tokensIn: 10, tokensOut: 5 }), deps)).json();
+    expect(r.usage).toMatchObject({ llmCalls: 3, llmTokensIn: 1010, llmTokensOut: 205 });
   });
 });
 

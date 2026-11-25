@@ -40,6 +40,9 @@ export const envSchema = z.object({
   LLM_SCOUT_MODEL: optStr,
   LLM_EDITOR_MODEL: optStr,
   LLM_MAX_CANDIDATES: int(10),
+  /** OpenRouter reasoning.effort per role ("none" disables thinking). */
+  LLM_SCOUT_REASONING: z.preprocess(blankToUndefined, z.enum(["none", "minimal", "low", "medium", "high"]).default("low")),
+  LLM_EDITOR_REASONING: z.preprocess(blankToUndefined, z.enum(["none", "minimal", "low", "medium", "high"]).default("medium")),
 
   LOW_PRIORITY: boolEnv(true),
   FFMPEG_THREADS: int(4),
