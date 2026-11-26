@@ -3,13 +3,14 @@ import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 import type { Db } from "./db/client";
-import { campaigns, clips, settings, sources, usage, type Clip } from "./db/schema";
+import { campaigns, clips, operators, settings, sources, usage, type Clip } from "./db/schema";
 import { campaignConfigSchema, type CampaignConfig } from "./schemas/campaign";
 import { clipEditSchema } from "./schemas/clip";
 import { CLIP_STATUSES } from "./constants";
 import { clipInputSchema, initialClipEdit, type ClipInput } from "./selection/finalize";
 import { DEFAULT_SCORE_WEIGHTS, scoreWeightsSchema, type ScoreWeights } from "./selection/score";
 import { usageDate } from "./jobs";
+import { fewShotExamples } from "./reviewDb";
 
 // ---------- settings ----------
 
@@ -48,11 +49,11 @@ export interface SourceContext {
   sourceId: string;
   campaign: { id: string; name: string; niche: string; config: CampaignConfig };
   scoreWeights: ScoreWeights;
-  /** Few-shot examples from past clips (SPEC §9); filled from Milestone 7. */
+  /** Few-shot examples: the niche's best clips of the last 30 days by views at 72 h (SPEC §9). */
   fewShot: { hook: string; firstLine: string; lengthSec: number; views: number }[];
 }
 
-export function getSourceContext(db: Db, sourceId: string): SourceContext | null {
+export function getSourceContext(db: Db, sourceId: string, storageDir: string | null = null): SourceContext | null {
   const src = db.select().from(sources).where(eq(sources.id, sourceId)).get();
   if (!src?.campaignId) return null;
   const camp = db.select().from(campaigns).where(eq(campaigns.id, src.campaignId)).get();
@@ -61,7 +62,7 @@ export function getSourceContext(db: Db, sourceId: string): SourceContext | null
     sourceId,
     campaign: { id: camp.id, name: camp.name, niche: camp.niche, config: campaignConfigSchema.parse(camp.config) },
     scoreWeights: getScoreWeights(db),
-    fewShot: [],
+    fewShot: fewShotExamples(db, storageDir, camp.niche),
   };
 }
 
@@ -152,10 +153,12 @@ export function getClipContext(db: Db, clipId: string) {
   const src = db.select().from(sources).where(eq(sources.id, clip.sourceId)).get();
   const ctx = getSourceContext(db, clip.sourceId);
   if (!src || !ctx) return null;
+  const op = clip.operatorId ? db.select().from(operators).where(eq(operators.id, clip.operatorId)).get() : undefined;
   return {
     clip,
     source: { id: src.id, kind: src.kind, url: src.url, durationSec: src.durationSec, transcriptQuality: src.transcriptQuality },
-    campaign: ctx.campaign,
+    campaign: { ...ctx.campaign, slug: db.select({ slug: campaigns.slug }).from(campaigns).where(eq(campaigns.id, ctx.campaign.id)).get()?.slug ?? ctx.campaign.id },
+    operator: op ? { id: op.id, name: op.name, slug: op.slug, driveFolder: op.driveFolder } : null,
   };
 }
 
@@ -168,6 +171,8 @@ export const clipPatchSchema = z
     composeVersion: z.number().int().min(0),
     outputPath: z.string().nullable(),
     thumbPath: z.string().nullable(),
+    deliveredAt: z.string().nullable(),
+    deliveryPath: z.string().nullable(),
   })
   .partial();
 export type ClipPatch = z.infer<typeof clipPatchSchema>;

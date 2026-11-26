@@ -41,9 +41,12 @@ export const fetchSections: StageHandler = async (task, ctx) => {
   const sourceId = requireSourceId(task);
   const { api, env, media, signal } = ctx;
   const src = await api.getSource(sourceId);
-  const clips = (await api.sourceClips(sourceId)).filter((c) => c.edit);
+  // A trim edit past the section re-fetches just that clip (payload.clipIds); otherwise all clips.
+  const only = (task.payload as { clipIds?: unknown }).clipIds;
+  const wanted = Array.isArray(only) ? new Set(only.filter((x): x is string => typeof x === "string")) : null;
+  const clips = (await api.sourceClips(sourceId)).filter((c) => c.edit && (!wanted || wanted.has(c.id)));
   if (!clips.length) throw new PermanentError("source has no clips to fetch");
-  await api.patchSource(sourceId, { status: "fetching", error: null });
+  if (!wanted) await api.patchSource(sourceId, { status: "fetching", error: null });
   const sf = sourceFiles(env.STORAGE_DIR, sourceId);
   if (!fs.existsSync(sf.wav)) throw new PermanentError("source audio.wav is missing (needed to align sections)");
   const fullFile = path.join(sf.dir, "full.mp4");
@@ -142,6 +145,6 @@ export const fetchSections: StageHandler = async (task, ctx) => {
     message: `Sections for ${clips.length} clips (${how}): downloaded ${mb(totalBytes)}${estimate}`,
     data: { totalBytes, fullEstimate, methods },
   });
-  await api.patchSource(sourceId, { status: "clipping" });
+  if (!wanted) await api.patchSource(sourceId, { status: "clipping" });
   return clips.map((c) => ({ type: "ANALYZE" as const, sourceId, clipId: c.id, payload: task.payload }));
 };

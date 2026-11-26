@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
-import { getUsage, loadEnv, taskCounts } from "@clip/shared";
+import { folderBytes, getUsage, hookInUse, loadEnv, performanceTables, taskCounts } from "@clip/shared";
 import { schema } from "@clip/shared/db";
 import { getDb } from "@/lib/db";
 import { RetryButton } from "@/components/RetryButton";
@@ -51,6 +51,16 @@ export default function OverviewPage() {
   const deepgramMin = usageToday.deepgramSeconds / 60;
   const freeGb = freeDiskGb(env.STORAGE_DIR);
   const workers = [...new Set(running.map((t) => t.workerId).filter(Boolean))];
+  const storageGb = folderBytes(env.STORAGE_DIR) / 1024 ** 3;
+  // Clips waiting for review, grouped by operator (SPEC §11 Overview).
+  const toReview = db.select().from(schema.clips).where(eq(schema.clips.status, "rendered")).orderBy(desc(schema.clips.score)).all();
+  const opName = new Map(ops.map((o) => [o.id, o.name]));
+  const reviewByOp = new Map<string, typeof toReview>();
+  for (const c of toReview) {
+    const k = opName.get(c.operatorId ?? "") ?? "Unassigned";
+    reviewByOp.set(k, [...(reviewByOp.get(k) ?? []), c]);
+  }
+  const perf = performanceTables(db);
 
   return (
     <div className="space-y-6">
@@ -92,8 +102,69 @@ export default function OverviewPage() {
         </Card>
         <Card title="Disk">
           <Stat label="GB free on storage drive" value={freeGb === null ? "?" : freeGb.toFixed(0)} />
+          <p className="mt-2 text-xs text-zinc-500">storage/ uses {storageGb.toFixed(1)} GB (cleanup runs daily)</p>
         </Card>
       </div>
+
+      <Card title={`Clips awaiting review (${toReview.length})`}>
+        {toReview.length === 0 ? (
+          <p className="text-sm text-zinc-500">Nothing to review.</p>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2">
+            {[...reviewByOp.entries()].map(([op, list]) => (
+              <div key={op}>
+                <h3 className="mb-1 text-sm font-medium">
+                  {op} <span className="text-zinc-500">({list.length})</span>
+                </h3>
+                <ul className="space-y-0.5 text-sm">
+                  {list.slice(0, 8).map((c) => (
+                    <li key={c.id}>
+                      <Link className="hover:underline" href={`/clips/${c.id}`}>
+                        <span className="tabular-nums text-zinc-500">{c.score?.toFixed(0)}</span> {hookInUse(c)}
+                      </Link>
+                    </li>
+                  ))}
+                  {list.length > 8 && <li className="text-xs text-zinc-500">+{list.length - 8} more</li>}
+                </ul>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      <Card title="What performs (views at 72 h)">
+        {perf.total === 0 ? (
+          <p className="text-sm text-zinc-500">Enter views at 72 h on posted clips (clip page) to see which hook angles and caption styles work. The best ones also become examples for new hooks.</p>
+        ) : (
+          <div className="grid gap-6 md:grid-cols-2">
+            {(
+              [
+                ["Hook angle", perf.byAngle],
+                ["Caption style", perf.byPreset],
+              ] as const
+            ).map(([title, rows]) => (
+              <table key={title} className="w-full text-left text-sm">
+                <thead className="text-xs text-zinc-500">
+                  <tr>
+                    <th className="py-1">{title}</th>
+                    <th>Clips</th>
+                    <th>Avg views</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r) => (
+                    <tr key={r.key} className="border-t border-zinc-100 dark:border-zinc-800">
+                      <td className="py-1">{r.key}</td>
+                      <td className="tabular-nums">{r.clips}</td>
+                      <td className="tabular-nums">{r.avgViews.toLocaleString("en-US")}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ))}
+          </div>
+        )}
+      </Card>
 
       <div className="grid gap-4 md:grid-cols-2">
         <Card title="Operators">

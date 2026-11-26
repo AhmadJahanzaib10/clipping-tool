@@ -11,5 +11,6 @@ __pycache__/
 .pytest_cache/
 *.log
 
-# Generated placeholder sounds for testing (real team sounds are committed normally)
-assets/sfx/**/test-*
+# SFX library stays on this machine (licences / redistribution); only the README is tracked
+assets/sfx/*
+!assets/sfx/README.md

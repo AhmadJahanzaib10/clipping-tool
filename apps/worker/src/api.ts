@@ -63,6 +63,9 @@ export class WorkerApi {
   patchClip(clipId: string, patch: ClipPatch) {
     return this.request("PATCH", `clips/${encodeURIComponent(clipId)}`, patch, z.object({ clip: clipSchema })).then((r) => r.clip);
   }
+  cleanupState() {
+    return this.request("GET", "cleanup", undefined, cleanupStateSchema);
+  }
   sfxLibrary() {
     return this.request(
       "GET",
@@ -141,5 +144,11 @@ const clipContextSchema = z.object({
     durationSec: z.number().nullable(),
     transcriptQuality: z.enum(["rough", "precise"]).nullable(),
   }),
-  campaign: z.object({ id: z.string(), name: z.string(), niche: z.string(), config: campaignConfigSchema }),
+  campaign: z.object({ id: z.string(), name: z.string(), niche: z.string(), slug: z.string(), config: campaignConfigSchema }),
+  operator: z.object({ id: z.string(), name: z.string(), slug: z.string(), driveFolder: z.string().nullable() }).nullable(),
+});
+
+const cleanupStateSchema = z.object({
+  sources: z.array(z.object({ id: z.string(), createdAt: z.string() })),
+  clips: z.array(z.object({ id: z.string(), sourceId: z.string(), status: z.string(), deliveredAt: z.string().nullable(), updatedAt: z.string() })),
 });

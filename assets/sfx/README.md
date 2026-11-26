@@ -16,6 +16,8 @@ The folder name is the category; new folders become new categories automatically
 | `misc/`       | anything else (manual use only)                  |
 
 - Formats: mp3, wav, ogg, m4a. Any file name. No music here.
+- **These files are not in git** (licences / redistribution). On another PC, copy this folder over by hand,
+  then Rescan.
 - After adding or removing files: press **Rescan** on the `/sfx` page or run `pnpm sfx:scan`
   (the dashboard also scans on startup). Unchanged files are skipped.
 - A campaign only uses the categories listed in its SFX settings (default: whoosh, pop, impact, transition).

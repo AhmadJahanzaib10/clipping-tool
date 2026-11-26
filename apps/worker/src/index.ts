@@ -12,6 +12,8 @@ import { analyze } from "./stages/analyze";
 import { prepClip } from "./stages/prepClip";
 import { renderBase } from "./stages/renderBase";
 import { compose } from "./stages/compose";
+import { deliver } from "./stages/deliver";
+import { cleanup } from "./stages/cleanup";
 
 const MAX_TOTAL = 2; // SPEC §12: max 2 concurrent tasks, at most MAX_HEAVY_TASKS heavy
 const IDLE_POLL_MS = 3000;
@@ -31,6 +33,8 @@ const stages: Partial<Record<TaskType, StageHandler>> = {
   PREP_CLIP: prepClip,
   RENDER_BASE: renderBase,
   COMPOSE: compose,
+  DELIVER: deliver,
+  CLEANUP: cleanup,
   ...(llmReady ? { SCOUT: scout, EDIT: edit } : {}),
 };
 const log = (...args: unknown[]) => console.log(new Date().toISOString(), "[worker]", ...args);

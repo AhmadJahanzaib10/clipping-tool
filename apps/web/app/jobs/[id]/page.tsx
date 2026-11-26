@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { clipFiles, jobDetail, loadEnv, planSchema, sectionInfoSchema, sourceClips, sourceFiles, transcriptSchema, type Plan, type SectionInfo, type Transcript } from "@clip/shared";
 import { AutoRefresh } from "@/components/AutoRefresh";
@@ -155,7 +156,12 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
               <tbody>
                 {clips.map((c) => (
                   <tr key={c.id} className="border-t border-zinc-100 align-top dark:border-zinc-800">
-                    <td className="py-2 pr-3 tabular-nums">{c.rank}</td>
+                    <td className="py-2 pr-3 tabular-nums">
+                      <Link className="font-medium underline" href={`/clips/${c.id}`} title="Review / edit">
+                        {c.rank}
+                      </Link>
+                      <div className="text-[11px] text-zinc-500">{c.status}</div>
+                    </td>
                     <td className="py-2 pr-3">
                       {c.outputPath ? (
                         <div className="w-24 space-y-1">

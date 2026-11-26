@@ -40,6 +40,8 @@ export interface DataApiDeps {
   db: Db;
   token: string;
   deepgramCapSec: number;
+  /** For few-shot first lines (words.json) and section checks. */
+  storageDir?: string;
   now?: () => Date;
 }
 
@@ -102,7 +104,7 @@ export async function handleDeepgramUsage(req: Request, deps: DataApiDeps): Prom
 
 export async function handleSourceContext(req: Request, id: string, deps: DataApiDeps): Promise<Response> {
   if (!authorized(req, deps.token)) return json({ error: "unauthorized" }, 401);
-  const ctx = getSourceContext(deps.db, id);
+  const ctx = getSourceContext(deps.db, id, deps.storageDir ?? null);
   return ctx ? json(ctx) : json({ error: "not_found" }, 404);
 }
 

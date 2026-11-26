@@ -82,6 +82,12 @@ export const clips = sqliteTable(
     thumbPath: text("thumb_path"),
     views72h: integer("views_72h"),
     viewsPlatform: text("views_platform"),
+    /** Review / delivery (SPEC §7.11, §7.12). */
+    approvedAt: text("approved_at"),
+    deliveredAt: text("delivered_at"),
+    deliveryPath: text("delivery_path"),
+    /** The output is a CapCut-edited upload, not our render. */
+    finalUploaded: integer("final_uploaded", { mode: "boolean" }).notNull().default(false),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
   },

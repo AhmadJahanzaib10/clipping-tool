@@ -10,5 +10,5 @@ export function workerRoute(action: WorkerAction) {
 
 export function dataDeps(): DataApiDeps {
   const env = loadEnv();
-  return { db: getDb(), token: env.WORKER_TOKEN, deepgramCapSec: env.DEEPGRAM_DAILY_CAP_MIN * 60 };
+  return { db: getDb(), token: env.WORKER_TOKEN, deepgramCapSec: env.DEEPGRAM_DAILY_CAP_MIN * 60, storageDir: env.STORAGE_DIR };
 }
