@@ -21,7 +21,8 @@
     "check:clips": "tsx scripts/check-clips.ts",
     "requeue": "tsx scripts/requeue.ts",
     "check:plans": "tsx scripts/check-plans.ts",
-    "release:stale": "tsx scripts/release-stale.ts"
+    "release:stale": "tsx scripts/release-stale.ts",
+    "check:render": "tsx scripts/check-render.ts"
   },
   "devDependencies": {
     "@clip/shared": "workspace:*",

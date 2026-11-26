@@ -6,7 +6,8 @@ import { getDb } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
-const ACTIVE = new Set(["queued", "ingesting", "transcribing", "selecting", "fetching"]);
+const ACTIVE = new Set(["queued", "ingesting", "transcribing", "selecting", "fetching", "clipping"]);
+const STAGE_ORDER = ["INGEST", "TRANSCRIBE", "SCOUT", "EDIT", "FETCH_SECTIONS", "ANALYZE", "PREP_CLIP", "RENDER_BASE", "COMPOSE", "DELIVER", "CLEANUP"];
 const STAGES = ["queued", "ingesting", "transcribing", "selecting", "fetching", "clipping", "done"];
 const levelColor: Record<string, string> = { error: "text-red-600", warn: "text-amber-600", info: "", debug: "text-zinc-400" };
 
@@ -109,17 +110,27 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
 
         <section className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
           <h2 className="mb-2 text-sm font-medium text-zinc-500">Tasks</h2>
+          {/* One row per stage (in pipeline order) with counts per status; stages repeat per clip and on re-runs. */}
           <ul className="space-y-1 text-sm">
-            {tasks.map((t) => (
-              <li key={t.id} className="flex justify-between gap-2">
-                <span className="font-mono">{t.type}</span>
-                <span className="text-zinc-500">
-                  {t.status}
-                  {t.attempts > 1 ? ` (attempt ${t.attempts})` : ""}
-                  {t.status === "pending" && t.type === "FETCH_SECTIONS" ? " · waits for Milestone 4" : ""}
-                </span>
-              </li>
-            ))}
+            {[...new Set(tasks.map((t) => t.type))]
+              .sort((a, b) => STAGE_ORDER.indexOf(a) - STAGE_ORDER.indexOf(b))
+              .map((type) => {
+                const ofType = tasks.filter((t) => t.type === type);
+                const counts = (["running", "pending", "failed", "done"] as const).map((st) => [st, ofType.filter((t) => t.status === st).length] as const).filter(([, n]) => n > 0);
+                return (
+                  <li key={type} className="flex justify-between gap-2">
+                    <span className="font-mono">{type}</span>
+                    <span className="text-zinc-500">
+                      {counts.map(([st, n]) => (
+                        <span key={st} className={st === "failed" ? "text-red-600" : st === "running" ? "text-blue-600" : ""}>
+                          {" "}
+                          {n} {st}
+                        </span>
+                      ))}
+                    </span>
+                  </li>
+                );
+              })}
           </ul>
         </section>
       </div>
@@ -132,6 +143,7 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
               <thead className="text-xs text-zinc-500">
                 <tr>
                   <th className="py-1 pr-3">#</th>
+                  <th className="pr-3">Clip</th>
                   <th className="pr-3">Score</th>
                   <th className="pr-3">Time</th>
                   <th className="pr-3">Length</th>
@@ -144,6 +156,35 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
                 {clips.map((c) => (
                   <tr key={c.id} className="border-t border-zinc-100 align-top dark:border-zinc-800">
                     <td className="py-2 pr-3 tabular-nums">{c.rank}</td>
+                    <td className="py-2 pr-3">
+                      {c.outputPath ? (
+                        <div className="w-24 space-y-1">
+                          <video
+                            className="aspect-[9/16] w-24 rounded bg-black"
+                            src={`/api/files/${c.outputPath}`}
+                            poster={c.thumbPath ? `/api/files/${c.thumbPath}?v=${c.composeVersion}` : undefined}
+                            controls
+                            preload="none"
+                          />
+                          <div className="flex flex-wrap gap-x-2 text-[11px] text-zinc-500">
+                            <span>v{c.composeVersion}</span>
+                            <a className="underline" href={`/api/files/${c.outputPath}?download=1`}>
+                              mp4
+                            </a>
+                            {c.basePath && (
+                              <a className="underline" href={`/api/files/${c.basePath}?download=1`} title="Clean version (no captions/SFX) for CapCut">
+                                clean
+                              </a>
+                            )}
+                            <a className="underline" href={`/api/files/clips/${c.id}/captions.srt?download=1`}>
+                              srt
+                            </a>
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-zinc-400">{c.status === "rendering" ? "rendering…" : "—"}</span>
+                      )}
+                    </td>
                     <td className="pr-3 tabular-nums" title={c.scores ? Object.entries(c.scores).map(([k, v]) => `${k} ${v}`).join(", ") : ""}>
                       {c.score?.toFixed(0)}
                     </td>

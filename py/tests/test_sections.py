@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 from media.analysis import nms
-from media.sections import SR, _full_size, align_section, best_lag, read_wav
+from media.sections import SR, _full_size, align_section, best_lag, locate_audio, read_wav
 
 
 def noise_wav(path, seconds, seed=0):
@@ -74,3 +74,15 @@ def test_full_size_estimate_falls_back_to_bitrate():
     dash = {"duration": 600, "requested_formats": [{"tbr": 2000}, {"tbr": 128}]}
     assert _full_size(dash) == int((2000 + 128) * 1000 / 8 * 600)
     assert _full_size({"duration": 600, "requested_formats": [{}]}) is None
+
+
+def test_locate_audio_finds_a_mixed_in_sound(tmp_path):
+    whoosh = tmp_path / "whoosh.wav"
+    noise_wav(whoosh, 0.5, seed=9)
+    bed = tmp_path / "bed.wav"
+    noise_wav(bed, 4, seed=10)
+    mixed = tmp_path / "mixed.wav"
+    subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(bed), "-i", str(whoosh), "-filter_complex",
+                    "[0]volume=0.3[a];[1]adelay=1250:all=1[b];[a][b]amix=inputs=2:normalize=0:duration=first", str(mixed)], check=True)
+    r = locate_audio({"needle": str(whoosh), "hay": str(mixed), "duration": 3.0})
+    assert r["offset"] == pytest.approx(1.25, abs=0.01) and r["score"] > 0.5

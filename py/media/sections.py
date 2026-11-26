@@ -156,3 +156,14 @@ def align_section(args: Dict[str, Any]) -> Dict[str, Any]:
     lag, score = best_lag(needle, hay)
     source_start = hay_start + lag / SR - skip
     return {"sourceStart": round(source_start, 4), "score": round(score, 4)}
+
+
+def locate_audio(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Where does a short sound (needle) occur in the first seconds of a media file? Used to verify that
+    SFX were mixed in at the planned time (e.g. the whoosh at 0.0 s)."""
+    ffmpeg = args.get("ffmpegPath", "ffmpeg")
+    needle = read_media_audio(args["needle"], 0.0, float(args.get("needleSec", 0.4)), ffmpeg)
+    hay_start = float(args.get("start", 0.0))
+    hay = read_media_audio(args["hay"], hay_start, float(args.get("duration", 3.0)), ffmpeg)
+    lag, score = best_lag(needle, hay)
+    return {"offset": round(hay_start + lag / SR, 4), "score": round(score, 4)}

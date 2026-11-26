@@ -10,3 +10,6 @@ __pycache__/
 .venv/
 .pytest_cache/
 *.log
+
+# Generated placeholder sounds for testing (real team sounds are committed normally)
+assets/sfx/**/test-*

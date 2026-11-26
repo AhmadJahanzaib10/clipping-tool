@@ -10,6 +10,8 @@ import { edit } from "./stages/edit";
 import { fetchSections } from "./stages/fetchSections";
 import { analyze } from "./stages/analyze";
 import { prepClip } from "./stages/prepClip";
+import { renderBase } from "./stages/renderBase";
+import { compose } from "./stages/compose";
 
 const MAX_TOTAL = 2; // SPEC §12: max 2 concurrent tasks, at most MAX_HEAVY_TASKS heavy
 const IDLE_POLL_MS = 3000;
@@ -27,6 +29,8 @@ const stages: Partial<Record<TaskType, StageHandler>> = {
   FETCH_SECTIONS: fetchSections,
   ANALYZE: analyze,
   PREP_CLIP: prepClip,
+  RENDER_BASE: renderBase,
+  COMPOSE: compose,
   ...(llmReady ? { SCOUT: scout, EDIT: edit } : {}),
 };
 const log = (...args: unknown[]) => console.log(new Date().toISOString(), "[worker]", ...args);
@@ -57,7 +61,8 @@ async function runTask(task: Task, handler: StageHandler) {
   const t0 = Date.now();
   try {
     log(`start ${task.type} ${task.id} (attempt ${task.attempts})`);
-    const next = (await handler(task, { env, api, media, signal: abort.signal, log })) ?? [];
+    // Follow-up stages inherit the task's priority, so an editor-triggered re-render stays ahead of the queue.
+    const next = ((await handler(task, { env, api, media, signal: abort.signal, log })) ?? []).map((n) => ({ priority: task.priority, ...n }));
     await api.complete(task.id, next);
     log(`done ${task.type} ${task.id} in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
   } catch (e) {

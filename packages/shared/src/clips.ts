@@ -137,6 +137,11 @@ export function clipFiles(storageDir: string, clipId: string) {
     plan: path.join(dir, "plan.json"),
     words: path.join(dir, "words.json"),
     base: path.join(dir, "base.mp4"),
+    baseLoudness: path.join(dir, "base.loudness.json"),
+    ass: path.join(dir, "captions.ass"),
+    srt: path.join(dir, "captions.srt"),
+    thumb: path.join(dir, "thumb.jpg"),
+    output: (version: number) => path.join(dir, `clip.v${version}.mp4`),
   };
 }
 
@@ -160,6 +165,9 @@ export const clipPatchSchema = z
     status: z.enum(CLIP_STATUSES),
     baseVersion: z.number().int().min(0),
     basePath: z.string().nullable(),
+    composeVersion: z.number().int().min(0),
+    outputPath: z.string().nullable(),
+    thumbPath: z.string().nullable(),
   })
   .partial();
 export type ClipPatch = z.infer<typeof clipPatchSchema>;

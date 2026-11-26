@@ -68,7 +68,7 @@ export class WorkerApi {
       "GET",
       "sfx",
       undefined,
-      z.object({ sfx: z.array(z.object({ id: z.string(), category: z.string(), file: z.string(), durationSec: z.number().nullable(), defaultGainDb: z.number() })) }),
+      z.object({ sfx: z.array(z.object({ id: z.string(), category: z.string(), file: z.string(), durationSec: z.number().nullable(), defaultGainDb: z.number(), cachedPath: z.string().nullable().optional() })) }),
     ).then((r) => r.sfx);
   }
   llmUsage(u: { calls: number; tokensIn: number; tokensOut: number }) {

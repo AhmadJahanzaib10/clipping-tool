@@ -17,7 +17,7 @@ from typing import Any, Dict
 from . import __version__
 from .analysis import analyze
 from .download import download_audio
-from .sections import align_section, download_full, download_section
+from .sections import align_section, download_full, download_section, locate_audio
 from .protocol import encode, handle, handle_line
 from .transcribe_local import WhisperManager
 
@@ -34,6 +34,7 @@ def make_handlers(whisper: WhisperManager) -> Dict[str, Any]:
         "download_full": download_full,
         "align_section": align_section,
         "analyze": analyze,
+        "locate_audio": locate_audio,
     }
 
 
